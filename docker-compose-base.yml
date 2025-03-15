@@ -1,0 +1,269 @@
+
+services:
+
+  nastool:
+    container_name: nastool
+    #image: nastool/nas-tools:latest
+    image: hsuyelin/nas-tools:latest
+    #image: registry.cn-hangzhou.aliyuncs.com/ptlj/nas-tools:latest
+    volumes:
+      - ${DOCKER_ROOT_PATH}/nastool/config:/config   # 冒号左边请修改为你想保存配置的路径
+      - ${VIDEO_ROOT_PATH}:/video   # 媒体目录，多个目录需要分别映射进来，需要满足配置文件说明中的要求
+    environment:
+      - PUID=0    # 想切换为哪个用户来运行程序，该用户的uid
+      - PGID=0    # 想切换为哪个用户来运行程序，该用户的gid
+      - UMASK=022 # 掩码权限，默认000，可以考虑设置为022
+      - NASTOOL_AUTO_UPDATE=false  # 如需在启动容器时自动升级程程序请设置为true
+      - NASTOOL_CN_UPDATE=false # 如果开启了容器启动自动升级程序，并且网络不太友好时，可以设置为true，会使用国内源进行软件更新
+     #- REPO_URL=https://ghproxy.com/https://github.com/NAStool/nas-tools.git  # 当你访问github网络很差时，可以考虑解释本行注释
+    restart: unless-stopped
+    network_mode: host
+    privileged: true
+
+  moviepilot-v2:
+    container_name: moviepilot-v2
+    image: jxxghp/moviepilot-v2:latest
+    #image: registry.cn-hangzhou.aliyuncs.com/ptlj/moviepilot:latest
+    volumes:
+      - ${DOCKER_ROOT_PATH}/moviepilot-v2/core:/moviepilot/.cache/ms-playwright #程序主目录，必选
+      - ${DOCKER_ROOT_PATH}/moviepilot-v2/config:/config #config 配置文件，必选
+      - ${VIDEO_ROOT_PATH}:/video
+      - '/var/run/docker.sock:/var/run/docker.sock:ro'
+    environment:
+      # 基础设置
+      - NGINX_PORT=3000
+      - PUID=0
+      - PGID=0
+      - UMASK=022
+      - SUPERUSER=admin   #登录账号
+      - API_TOKEN=moviepilot
+      - MOVIEPILOT_AUTO_UPDATE=release   #重启更新
+      # 用户认证
+      - AUTH_SITE=iyuu  #认证站点
+      - IYUU_SIGN=${IYUU_SIGN}
+      # 其他设置
+      - BIG_MEMORY_MODE=false  #大内存模式
+      - TMDB_API_DOMAIN=api.tmdb.org
+      - TMDB_IMAGE_DOMAIN=static-mdb.v.geilijiasu.com
+    # ports:
+        # - 3000:3000 # web 接口
+        # - 3001:3001 # overseerr 接口
+    restart: unless-stopped
+    network_mode: host
+    hostname: moviepilot
+    privileged: true
+
+  moviepilot:
+    container_name: moviepilot
+    image: jxxghp/moviepilot:latest
+    #image: registry.cn-hangzhou.aliyuncs.com/ptlj/moviepilot:latest
+    volumes:
+      - ${DOCKER_ROOT_PATH}/moviepilot/main:/moviepilot #程序主目录，必选
+      - ${DOCKER_ROOT_PATH}/moviepilot/config:/config #config 配置文件，必选
+      - ${VIDEO_ROOT_PATH}:/video
+    environment:
+      # 基础设置
+      - NGINX_PORT=3000
+      - PUID=0
+      - PGID=0
+      - UMASK=022
+      - SUPERUSER=admin   #登录账号
+      - SUPERUSER_PASSWORD=password  #登录密码
+      - API_TOKEN=moviepilot
+      - MOVIEPILOT_AUTO_UPDATE=false   #重启更新
+      # - PROXY_HOST=代理地址 # 代理地址
+      - TMDB_API_DOMAIN=api.tmdb.org
+      # 下载目录设置
+      - DOWNLOAD_PATH=/video/downloads   # 下载保存目录
+      - DOWNLOAD_CATEGORY=false #下载二级分类开关
+      - DOWNLOAD_MOVIE_PATH=/video/downloads/movie
+      - DOWNLOAD_TV_PATH=/video/downloads/tv
+      - DOWNLOAD_ANIME_PATH=/video/downloads/anime
+      # 媒体库目录设置
+      - LIBRARY_PATH=/video/link #媒体库目录
+      - LIBRARY_MOVIE_NAME=movie   #电影目录名
+      - LIBRARY_TV_NAME=tv    #电视剧目录名
+      - LIBRARY_ANIME_NAME=anime   # 动漫目录名
+      - LIBRARY_CATEGORY=true    # 媒体库自动分类功能
+      # 媒体库功能设置
+      - DOWNLOAD_SUBTITLE=true  # 下载站点字幕
+      - DOWNLOADER_MONITOR=true  # 下载器监控
+      - TORRENT_TAG=MOVIEPILOT   #种子标签
+      - SCRAP_METADATA=true   # 刮削入库的媒体文件
+      - REFRESH_MEDIASERVER=true    # 入库刷新媒体库
+      - TRANSFER_TYPE=link      #��移方式，支持link/copy/move/softlink
+      # CookieCloud设置
+      # - COOKIECLOUD_HOST=http://xxx:8080   #CookieCloud服务器地址 必须添加
+      # - COOKIECLOUD_KEY=  #cc用户KEY
+      # - COOKIECLOUD_PASSWORD=  #cc端对端加密密码
+      # - COOKIECLOUD_INTERVAL=180  # CookieCloud同步间隔（分钟）
+      # - USER_AGENT=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36 Edg/115.0.1901.203    #CookieCloud对应的浏览器UA，可选，同步站点后可以在管理界面中修改
+      #  消息通知渠道
+      # - MESSAGER=slack  #消息通知渠道
+      # slack通知
+      # - SLACK_OAUTH_TOKEN=xoxb-xxx #Slack Bot User OAuth Token
+      # - SLACK_APP_TOKEN=xapp-xxx #Slack App-Level Token
+      # - SLACK_CHANNEL=  #频道名称，默认全体
+      # 下载器设置
+      ##qbittorrent设置项
+      - QB_HOST=http://${HOST_IP}:9000 # qbittorrent地址,http://开头
+      - QB_USER=admin #qbittorrent用户名
+      - QB_PASSWORD=adminadmin #qbittorrent密码
+      # 媒体服务器 emby/jellyfin/plex
+      - MEDIASERVER=emby
+      # - JELLYFIN_HOST=http://${HOST_IP}:8096
+      # - JELLYFIN_API_KEY=${JELLYFIN_API_KEY}
+      - EMBY_HOST=http://${HOST_IP}:8096
+      # - EMBY_API_KEY=${EMBY_API_KEY}
+      - EMBY_API_KEY=${EMBY_API_KEY_AMILY}
+      - MEDIASERVER_SYNC_INTERVAL:6  # 媒体服务器同步间隔（小时）
+      # 用户认证
+      - AUTH_SITE=iyuu  #认证站点
+      - IYUU_SIGN=${IYUU_SIGN}
+      # 其他设置
+      - BIG_MEMORY_MODE=false  #大内存模式
+    # ports:
+        # - 3000:3000 # web 接口
+        # - 3001:3001 # overseerr 接口
+    restart: unless-stopped
+    network_mode: host
+    hostname: moviepilot
+    privileged: true
+
+  qb-9000:
+    container_name: qb-9000
+    #image: linuxserver/qbittorrent:4.5.5-r0-ls287
+    #image: registry.cn-hangzhou.aliyuncs.com/ptlj/qbittorrent:4.5.5-r0-ls287
+    image: linuxserver/qbittorrent:5.0.3
+    #image: registry.cn-hangzhou.aliyuncs.com/ptlj/qbittorrent:4.6.4
+    volumes:
+      - ${DOCKER_ROOT_PATH}/qb-9000/config:/config
+      - ${VIDEO_ROOT_PATH}:/video
+    environment:
+      - PUID=0
+      - PGID=0
+      - TZ=Asia/Shanghai
+      - WEBUI_PORT=9000
+      - SavePatch=/video/downloads
+      - TempPatch=/video/downloads
+    # ports:
+      # - 9000:9000
+      # - 32156:32156
+      # - 32156:32156/udp
+    restart: unless-stopped
+    network_mode: host
+    privileged: true
+
+  jellyfin:
+    image: nyanmisaka/jellyfin:latest
+    #image: registry.cn-hangzhou.aliyuncs.com/ptlj/jellyfin:latest
+    container_name: jellyfin
+    volumes:
+      - ${DOCKER_ROOT_PATH}/jellyfin/config:/config
+      - ${DOCKER_ROOT_PATH}/jellyfin/cache:/cache
+      - ${VIDEO_ROOT_PATH}:/video
+    environment:
+      - PUID=0
+      - PGID=0
+      - TZ=Asia/Shanghai
+      - JELLYFIN_PublishedServerUrl=${HOST_IP}
+    # ports:
+      # - 8096:8096 # http访问端口
+      # - 8920:8920 # https访问端口
+      # - 7359:7359/udp
+      # - 1900:1900/udp
+    devices:
+      - /dev/dri:/dev/dri
+      #- /dev/nvidia0:/dev/nvidia0
+      #- /dev/nvidiactl:/dev/nvidiactl
+      #- /dev/nvidia-uvm:/dev/nvidia-uvm
+      #- /dev/nvidia-uvm-tools:/dev/nvidia-uvm-tools
+    restart: unless-stopped
+    network_mode: host
+    privileged: true
+
+  emby:
+    #image: lovechen/embyserver:latest
+    image: amilys/embyserver:beta
+    #image: registry.cn-hangzhou.aliyuncs.com/ptlj/embyserver:beta
+    container_name: emby
+    volumes:
+      - ${DOCKER_ROOT_PATH}/emby/config:/config
+      - ${VIDEO_ROOT_PATH}:/video
+    environment:
+      - UID=0
+      - GID=0
+      - GIDLIST=0
+      - TZ=Asia/Shanghai
+    # ports:
+      # - 8096:8096 # http访问端口
+      # - 8920:8920 # https访问端口
+      # - 7359:7359/udp #local network discovery
+      # - 1900:1900/udp #dlna
+    devices:
+      - /dev/dri:/dev/dri
+      #- /dev/nvidia0:/dev/nvidia0
+      #- /dev/nvidiactl:/dev/nvidiactl
+      #- /dev/nvidia-uvm:/dev/nvidia-uvm
+      #- /dev/nvidia-uvm-tools:/dev/nvidia-uvm-tools
+      #- /dev/nvidia-modeset:/dev/nvidia-modeset
+    #runtime: nvidia
+    restart: unless-stopped
+    network_mode: host
+    privileged: true
+
+  plex:
+    image: plexinc/pms-docker:latest                  # latest 安装最新的版本
+    #image: registry.cn-hangzhou.aliyuncs.com/ptlj/pms-docker:latest
+    container_name: plex
+    hostname: PlexServer                              # 自定义主机名称
+    restart: unless-stopped
+    network_mode: host
+    privileged: true                           # 设置重启策略
+    volumes:
+      - ${DOCKER_ROOT_PATH}/plex/config:/config          # Plex 配置文件目录
+      - ${DOCKER_ROOT_PATH}/plex/transcode:/transcode    # Plex 转码文件目录
+      - ${DOCKER_ROOT_PATH}/plex/data:/data             # Plex 数据文件目录
+      - ${VIDEO_ROOT_PATH}:/video"
+   #ports:
+   #  - 32400:32400/tcp                               # Plex 网页访问端口，例如要改为通过 8080 端口访问，就修改为8080:32400
+   #  - 3005:3005/tcp                                 # Plex Companion
+   #  - 8324:8324/tcp                                 # controlling Plex for Roku via Plex Companion
+   #  - 32469:32469/tcp                               # access to the Plex DLNA Server
+   #  - 32468:1900/udp                                # access to the Plex DLNA Server
+   #  - 32410:32410/udp                               # current GDM network discovery
+   #  - 32412:32412/udp                               # current GDM network discovery
+   #  - 32413:32413/udp                               # current GDM network discovery
+   #  - 32414:32414/udp                               # current GDM network discovery
+    devices:                                       # Share hardware devices with FFmpeg (optional)
+      - /dev/dri:/dev/dri                           # Intel QSV
+     #  - "/dev/nvidia0:/dev/nvidia0"                # Nvidia CUDA
+     #  - "/dev/nvidiactl:/dev/nvidiactl"
+     #  - "/dev/nvidia-modeset:/dev/nvidia-modeset"
+     #  - "/dev/nvidia-nvswitchctl:/dev/nvidia-nvswitchctl"
+     #  - "/dev/nvidia-uvm:/dev/nvidia-uvm"
+     #  - "/dev/nvidia-uvm-tools:/dev/nvidia-uvm-tools"
+     #  - "/dev/video11:/dev/video11"                # Raspberry V4L2
+    environment:
+      TZ: Asia/Shanghai                               # 容器内部时区
+      PLEX_UID: 0                                     # 在容器内创建的用户 ID（不懂勿改）
+      PLEX_GID: 0                                     # 在容器内创建的用户组 ID（不懂勿改）
+      PLEX_CLAIM: ${PLEX_CLAIM_TOKEN}                 # 真实服务器的声明令牌，您可以通过访问 https://www.plex.tv/claim 获取声明令牌以将您的服务器登录到您的 Plex 帐户
+      #ADVERTISE_IP: hostIPAddress:32400/              # 填写外部访问的固定 IP 或域名，没有的话可以删除此行
+
+  chinese-sub-finder:
+    container_name: chinese-sub-finder
+    image: allanpk716/chinesesubfinder:latest
+    #image: registry.cn-hangzhou.aliyuncs.com/ptlj/chinesesubfinder:latest
+    volumes:
+      - ${DOCKER_ROOT_PATH}/chinese-sub-finder/config:/config
+      - ${VIDEO_ROOT_PATH}:/media
+    environment:
+      - PUID=0
+      - PGID=0
+      - UMASK=022
+      - TZ=Asia/Shanghai
+    restart: unless-stopped
+    network_mode: host
+    privileged: true
+

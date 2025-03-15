@@ -1,0 +1,15 @@
+<svg width="200" height="200" viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg" fill="none">
+  <rect width="200" height="200" fill="none"/>
+  <text x="50%" y="50%" font-family="'Orbitron', sans-serif" font-size="40" fill="url(#gradient)" text-anchor="middle" alignment-baseline="middle" letter-spacing="3">
+    NASPT
+  </text>
+  <line x1="20" y1="160" x2="180" y2="160" stroke="url(#gradient)" stroke-width="2" stroke-dasharray="5,5"/>
+  <circle cx="40" cy="40" r="5" fill="url(#gradient)"/>
+  <circle cx="160" cy="40" r="5" fill="url(#gradient)"/>
+  <defs>
+    <linearGradient id="gradient" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#00D8FF"/>
+      <stop offset="100%" stop-color="#A270FF"/>
+    </linearGradient>
+  </defs>
+</svg>

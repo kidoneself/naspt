@@ -1,0 +1,148 @@
+version: '3.8'
+services:
+  qbittorrent: # mp下载的qb
+    image: linuxserver/qbittorrent:4.6.4
+    container_name: qbittorrent
+    restart: always
+    volumes:
+      - ${DOCKER_ROOT_PATH}/qBittorrent/config:/config
+      - ${VIDEO_ROOT_PATH}:/media
+    environment:
+      PUID: ${PUID}
+      PGID: ${PGID}
+      UMASK: ${UMASK}
+      TZ: Asia/Shanghai
+      WEBUI_PORT: 8080
+      SavePatch: /media/downloads
+      TempPatch: /media/downloads
+    networks:
+      eth1:
+        ipv4_address: 10.10.10.8
+  qbittorrent-seed: # mp刷流的qb
+    image: linuxserver/qbittorrent:4.6.4
+    container_name: qBittorrent-seed
+    restart: always
+    volumes:
+      - ${DOCKER_ROOT_PATH}/qbittorrent/config:/config
+      - ${SEED_ROOT_PATH}:/seed
+    environment:
+      PUID: ${PUID}
+      PGID: ${PGID}
+      UMASK: ${UMASK}
+      TZ: Asia/Shanghai
+      WEBUI_PORT: 8080
+      SavePatch: /seed
+      TempPatch: /seed
+    networks:
+      eth1:
+        ipv4_address: 10.10.10.22  # 替换为指定的 IP 地址
+  emby:
+    image: amilys/embyserver:beta
+    container_name: emby
+    restart: always
+    volumes:
+      - ${DOCKER_ROOT_PATH}/emby:/config
+      - ${VIDEO_ROOT_PATH}:/media
+    environment:
+      UID: ${PUID}
+      GID: ${PGID}
+      UMASK: ${UMASK}
+      TZ: Asia/Shanghai
+    devices:
+      - /dev/dri:/dev/dri
+    networks:
+      eth1:
+        ipv4_address: 10.10.10.6  # 替换为指定的 IP 地址
+
+  chinese-sub-finder:
+    image: allanpk716/chinesesubfinder:latest
+    container_name: mp-chinese-sub-finder
+    restart: always
+    volumes:
+      - ${DOCKER_ROOT_PATH}/chinese-sub-finder/config:/config
+      - ${DOCKER_ROOT_PATH}/chinese-sub-finder/cache:/app/cache
+      - ${VIDEO_ROOT_PATH}:/media
+    environment:
+      PUID: ${PUID}
+      PGID: ${PGID}
+      UMASK: ${UMASK}
+      TZ: Asia/Shanghai
+    networks:
+      eth1:
+        ipv4_address: 10.10.10.16  # 替换为指定的 IP 地址
+
+  moviepilot:
+    image: jxxghp/moviepilot-v2:latest
+    container_name: mp-moviepilot-v2
+    restart: always
+    privileged: true
+    volumes:
+      - ${VIDEO_ROOT_PATH}:/media
+      - ${DOCKER_ROOT_PATH}/moviepilot-v2/config:/config
+      - ${DOCKER_ROOT_PATH}/moviepilot-v2/core:/moviepilot/.cache/ms-playwright
+      # - ${DOCKER_ROOT_PATH}/qb-seed/config/qBittorrent/BT_backup:/qbtr
+    environment:
+      MOVIEPILOT_AUTO_UPDATE: release
+      PUID: ${PUID}
+      PGID: ${PGID}
+      UMASK: ${UMASK}
+      TZ: Asia/Shanghai
+      AUTH_SITE: leaves
+      LEAVES_UID: 10971
+      LEAVES_PASSKEY: e0405a9d0de9e3b112ef78ac3d9c7975
+      SUPERUSER: admin
+      API_TOKEN: nasptnasptnasptnaspt
+      PROXY_HOST: http://naspt:naspt@10.10.10.2:7890
+    networks:
+      eth1:
+        ipv4_address: 10.10.10.7
+
+  owjdxb:
+    image: ionewu/owjdxb
+    container_name: owjdxb
+    restart: always
+    volumes:
+      - ${DOCKER_ROOT_PATH}/store:/data/store
+    networks:
+      eth1:
+        ipv4_address: 10.10.10.10  # 替换为指定的 IP 地址
+
+
+
+  allinone:
+    image: youshandefeiyang/allinone          # 使用 youshandefeiyang/allinone 镜像
+    container_name: allinone                    # 容器名称为 allinone
+    privileged: true                            # 允许容器运行特权模式，提升容器权限
+    restart: always                             # 容器停止时自动重启，除非被手动停止
+    #    ports:
+    #      - "55101:35455"                           # 将主机的 35455 端口映射到容器的 35455 端口
+    networks:
+      eth1:
+        ipv4_address: 10.10.10.97
+    command: >
+      -tv=true
+      -aesKey=swj6pnb4h6xyvhpq69fgae2bbpjlb8y2
+      -userid=5892131247
+      -token=9209187973c38fb7ee461017e1147ebe43ef7d73779840ba57447aaa439bac301b02ad7189d2f1b58d3de8064ba9d52f46ec2de6a834d1373071246ac0eed55bb3ff4ccd79d137
+
+  allinone_format:
+    image: yuexuangu/allinone_format:latest    # 使用 yuexuangu/allinone_format 镜像
+    container_name: allinone_format             # 容器名称为 allinone_format
+    restart: always                             # 容器停止时自动重启（始终）
+    #    ports:
+    #      - "55102:35456"                           # 将主机的 35456 端口映射到容器的 35456 端口
+    networks:
+      eth1:
+        ipv4_address: 10.10.10.96
+
+  watchtower:
+    image: containrrr/watchtower
+    container_name: watchtower
+    restart: always
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+
+
+networks:
+  eth1:
+    external: true
