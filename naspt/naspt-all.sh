@@ -34,11 +34,12 @@ init_service_with_config() {
     local docker_opts="$5"
 
     check_port "$port" "$name" || return 1
-    local config_path="${DOCKER_ROOT}/${container_name}/config"
-    local data_path="${DOCKER_ROOT}/${container_name}/data"
+    local config_path="${DOCKER_ROOT}"
+#    local config_path="${DOCKER_ROOT}/${container_name}/config"
+#    local data_path="${DOCKER_ROOT}/${container_name}/data"
 
     clean_container "$container_name"
-    mkdir -p "$config_path" "$data_path" || {
+    mkdir -p "$config_path"  || {
         error "无法创建${name}目录"
         return 1
     }
@@ -49,7 +50,7 @@ init_service_with_config() {
     fi
 
     info "正在启动 ${name}..."
-    eval "docker run -d --name ${container_name} \
+    eval "docker run -d --name ${name} \
         --restart always \
         --network bridge \
         ${docker_opts} \
@@ -71,23 +72,23 @@ init_service() {
     local docker_opts="$6"
 
     check_port "$port" "$name" || return 1
-    local config_path="${DOCKER_ROOT}/${container_name}/config"
-    local data_path="${DOCKER_ROOT}/${container_name}/data"
+    local config_path="${DOCKER_ROOT}"
+#    local data_path="${DOCKER_ROOT}/${container_name}/data"
 
     clean_container "$container_name"
-    mkdir -p "$config_path" "$data_path" || {
+    mkdir -p "$config_path"  || {
         error "无法创建${name}目录"
         return 1
     }
 
-    # 如果有配置文件需要下载
-    if [[ -n "$config_url" ]]; then
-        info "下载${name}配置文件..."
-        curl -Ls "$config_url" -o "${config_path}/config.json" || {
-            error "${name}配置文件下载失败"
-            return 1
-        }
-    fi
+#    # 如果有配置文件需要下载
+#    if [[ -n "$config_url" ]]; then
+#        info "下载${name}配置文件..."
+#        curl -Ls "$config_url" -o "${config_path}/config.json" || {
+#            error "${name}配置文件下载失败"
+#            return 1
+#        }
+#    fi
 
     info "正在启动 ${name}..."
     eval "docker run -d --name ${container_name} \
@@ -717,6 +718,32 @@ declare -A DEFAULT_PORTS=(
     ["115_cms"]="9527"
 )
 
+# 镜像配置
+declare -A DEFAULT_IMAGE=(
+    # 媒体服务镜像
+    ["tr"]="ccr.ccs.tencentyun.com/naspt/transmission:4.0.5"
+    ["emby"]="ccr.ccs.tencentyun.com/naspt/embyserver:latest"
+    ["qb"]="ccr.ccs.tencentyun.com/naspt/qbittorrent:4.6.4"
+    ["csf"]="ccr.ccs.tencentyun.com/naspt/chinesesubfinder:latest"
+    ["mp"]="ccr.ccs.tencentyun.com/naspt/moviepilot-v2:latest"
+    # 音乐服务镜像
+    ["navidrome"]="ccr.ccs.tencentyun.com/naspt/navidrome:latest"
+    ["musictag"]="ccr.ccs.tencentyun.com/naspt/music_tag_web:latest"
+    ["lyricapi"]="ccr.ccs.tencentyun.com/naspt/lyricapi:latest"
+    # Jellyfin服务镜像
+    ["jellyfin"]="ccr.ccs.tencentyun.com/naspt/jellyfin:latest"
+    ["metatube"]="ccr.ccs.tencentyun.com/naspt/metatube-server:latest"
+    # IPTV服务镜像
+    ["iptv"]="ccr.ccs.tencentyun.com/naspt/iptv:latest"
+    # 直播录制镜像
+    ["bililive"]="ccr.ccs.tencentyun.com/naspt/bililive:latest"
+    # 115服务镜像
+    ["115_cms"]="ccr.ccs.tencentyun.com/naspt/115-cms:latest"
+    # 代理服务镜像
+    ["frp"]="ccr.ccs.tencentyun.com/naspt/frpc:latest"
+    ["laddy"]="ccr.ccs.tencentyun.com/naspt/laddy:latest"
+)
+
 # 初始化默认配置
 DOCKER_ROOT=""
 MEDIA_ROOT=""
@@ -869,7 +896,7 @@ restore_config() {
 
 # 媒体服务初始化函数
 init_tr() {
-    init_service_with_config "tr" "naspt-tr" "ccr.ccs.tencentyun.com/naspt/transmission:4.0.5" "${DEFAULT_PORTS[tr]}" \
+    init_service_with_config "tr" "naspt-tr" "${DEFAULT_IMAGE[tr]}" "${DEFAULT_PORTS[tr]}" \
         "-p ${DEFAULT_PORTS[tr]}:9091 \
         -e PUID=0 -e PGID=0 -e UMASK=022 \
         -e TZ=Asia/Shanghai \
@@ -880,7 +907,7 @@ init_tr() {
 }
 
 init_emby() {
-    init_service_with_config "emby" "naspt-emby" "ccr.ccs.tencentyun.com/naspt/embyserver:latest" "${DEFAULT_PORTS[emby]}" \
+    init_service_with_config "emby" "naspt-emby" "${DEFAULT_IMAGE[emby]}" "${DEFAULT_PORTS[emby]}" \
         "--privileged \
         -p ${DEFAULT_PORTS[emby]}:8096 \
         --device /dev/dri:/dev/dri \
@@ -890,7 +917,7 @@ init_emby() {
 }
 
 init_qb() {
-    init_service_with_config "qb" "naspt-qb" "ccr.ccs.tencentyun.com/naspt/qbittorrent:4.6.4" "${DEFAULT_PORTS[qb]}" \
+    init_service_with_config "qb" "naspt-qb" "${DEFAULT_IMAGE[qb]}" "${DEFAULT_PORTS[qb]}" \
         "-p ${DEFAULT_PORTS[qb]}:9000 \
         -e WEBUI_PORT=9000 \
         -e PUID=0 -e PGID=0 -e UMASK=022 \
@@ -902,7 +929,7 @@ init_qb() {
 }
 
 init_csf() {
-    init_service_with_config "csf" "naspt-csf" "ccr.ccs.tencentyun.com/naspt/chinesesubfinder:latest" "${DEFAULT_PORTS[csf]}" \
+    init_service_with_config "csf" "naspt-csf" "${DEFAULT_IMAGE[csf]}" "${DEFAULT_PORTS[csf]}" \
         "--privileged \
         -p ${DEFAULT_PORTS[csf]}:19035 \
         -e PUID=0 -e PGID=0 -e UMASK=022 \
@@ -912,7 +939,7 @@ init_csf() {
 }
 
 init_mp() {
-    init_service_with_config "mp" "naspt-mpv2" "ccr.ccs.tencentyun.com/naspt/moviepilot-v2:latest" "${DEFAULT_PORTS[mp]}" \
+    init_service_with_config "mp" "naspt-mpv2" "${DEFAULT_IMAGE[mp]}" "${DEFAULT_PORTS[mp]}" \
         "--privileged \
         -p ${DEFAULT_PORTS[mp]}:3000 \
         -p 3001:3001 \
@@ -935,7 +962,7 @@ init_mp() {
 
 # 音乐服务初始化函数
 init_navidrome() {
-    init_service_with_config "navidrome" "naspt-navidrome" "ccr.ccs.tencentyun.com/naspt/navidrome:latest" "${DEFAULT_PORTS[navidrome]}" \
+    init_service_with_config "navidrome" "naspt-navidrome" "${DEFAULT_IMAGE[navidrome]}" "${DEFAULT_PORTS[navidrome]}" \
         "-p ${DEFAULT_PORTS[navidrome]}:4533 \
         -e ND_SCANSCHEDULE=1h \
         -e ND_LOGLEVEL=info \
@@ -944,21 +971,21 @@ init_navidrome() {
 }
 
 init_musictag() {
-    init_service_with_config "musictag" "naspt-musictag" "ccr.ccs.tencentyun.com/naspt/music_tag_web:latest" "${DEFAULT_PORTS[musictag]}" \
+    init_service_with_config "musictag" "naspt-musictag" "${DEFAULT_IMAGE[musictag]}" "${DEFAULT_PORTS[musictag]}" \
         "-p ${DEFAULT_PORTS[musictag]}:8002 \
         -v '${MUSIC_ROOT}:/app/media' \
         -v '${DOCKER_ROOT}/naspt-musictag:/app/data'"
 }
 
 init_lyricapi() {
-    init_service "LyricAPI" "naspt-lyricapi" "ccr.ccs.tencentyun.com/naspt/lyricapi:latest" "${DEFAULT_PORTS[lyricapi]}" \
+    init_service "LyricAPI" "naspt-lyricapi" "${DEFAULT_IMAGE[lyricapi]}" "${DEFAULT_PORTS[lyricapi]}" \
         "-p ${DEFAULT_PORTS[lyricapi]}:28883 \
         -v '${MUSIC_ROOT}/links:/music'"
 }
 
 # Jellyfin服务初始化函数
 init_jellyfin() {
-    init_service "Jellyfin" "naspt-jl" "ccr.ccs.tencentyun.com/naspt/jellyfin:latest" "${DEFAULT_PORTS[jellyfin]}" "" \
+    init_service "Jellyfin" "naspt-jl" "${DEFAULT_IMAGE[jellyfin]}" "${DEFAULT_PORTS[jellyfin]}" "" \
         "--privileged \
         -p ${DEFAULT_PORTS[jellyfin]}:8096 \
         --device /dev/dri:/dev/dri \
@@ -972,7 +999,7 @@ init_jellyfin() {
 }
 
 init_metatube() {
-    init_service "MetaTube" "metatube" "ccr.ccs.tencentyun.com/naspt/metatube-server:latest" "${DEFAULT_PORTS[metatube]}" "" \
+    init_service "MetaTube" "metatube" "${DEFAULT_IMAGE[metatube]}" "${DEFAULT_PORTS[metatube]}" "" \
         "-p ${DEFAULT_PORTS[metatube]}:8080 \
         -v '${DOCKER_ROOT}/metatube/config:/config' \
         -dsn /config/metatube.db"
@@ -980,7 +1007,7 @@ init_metatube() {
 
 # IPTV服务初始化函数
 init_iptv() {
-    init_service "IPTV" "naspt-iptv" "ccr.ccs.tencentyun.com/naspt/iptv:latest" "${DEFAULT_PORTS[iptv]}" \
+    init_service "IPTV" "naspt-iptv" "${DEFAULT_IMAGE[iptv]}" "${DEFAULT_PORTS[iptv]}" \
         "https://alist.naspt.vip/d/123pan/shell/naspt-iptv/config.json" \
         "-p ${DEFAULT_PORTS[iptv]}:35455 \
         -p ${DEFAULT_PORTS[iptv_format]}:35456 \
@@ -1022,7 +1049,7 @@ init_epg() {
 
 # 直播录制服务初始化函数
 init_bililive() {
-    init_service "BiliLive" "naspt-bililive" "ccr.ccs.tencentyun.com/naspt/bililive:latest" "${DEFAULT_PORTS[bililive]}" \
+    init_service "BiliLive" "naspt-bililive" "${DEFAULT_IMAGE[bililive]}" "${DEFAULT_PORTS[bililive]}" \
         "https://alist.naspt.vip/d/123pan/shell/naspt-live/config.json" \
         "-p ${DEFAULT_PORTS[bililive]}:9595 \
         -e PUID=0 \
@@ -1035,7 +1062,7 @@ init_bililive() {
 
 # 115直连服务初始化函数
 init_115_emby() {
-    init_service "115 Emby" "naspt-115-emby" "ccr.ccs.tencentyun.com/naspt/jellyfin:latest" "${DEFAULT_PORTS[115_emby]}" "" \
+    init_service "115 Emby" "naspt-115-emby" "${DEFAULT_IMAGE[jellyfin]}" "${DEFAULT_PORTS[115_emby]}" "" \
         "--privileged \
         -p ${DEFAULT_PORTS[115_emby]}:8096 \
         -e PUID=0 \
@@ -1047,7 +1074,7 @@ init_115_emby() {
 }
 
 init_115_cms() {
-    init_service "115 CMS" "naspt-115-cms" "ccr.ccs.tencentyun.com/naspt/115-cms:latest" "${DEFAULT_PORTS[115_cms]}" \
+    init_service "115 CMS" "naspt-115-cms" "${DEFAULT_IMAGE[115_cms]}" "${DEFAULT_PORTS[115_cms]}" \
         "https://alist.naspt.vip/d/123pan/shell/naspt-115/config.json" \
         "-p ${DEFAULT_PORTS[115_cms]}:9527 \
         -e PUID=0 \
@@ -1059,7 +1086,7 @@ init_115_cms() {
 
 # 代理服务初始化函数
 init_frp() {
-    init_service "FRP" "naspt-frp" "ccr.ccs.tencentyun.com/naspt/frpc:latest" "" \
+    init_service "FRP" "naspt-frp" "${DEFAULT_IMAGE[frp]}" "" \
         "https://alist.naspt.vip/d/123pan/shell/naspt-frp/frpc.ini" \
         "--network host \
         -e TZ=Asia/Shanghai \
@@ -1067,7 +1094,7 @@ init_frp() {
 }
 
 init_laddy() {
-    init_service "Laddy" "naspt-laddy" "ccr.ccs.tencentyun.com/naspt/laddy:latest" "" \
+    init_service "Laddy" "naspt-laddy" "${DEFAULT_IMAGE[laddy]}" "" \
         "https://alist.naspt.vip/d/123pan/shell/naspt-laddy/config.json" \
         "--network host \
         -e TZ=Asia/Shanghai \
