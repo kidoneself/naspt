@@ -152,9 +152,11 @@ load_config() {
     fi
 }
 
+# 修改 save_config 函数
 save_config() {
     mkdir -p "$CONFIG_DIR" || handle_error "无法创建配置目录"
 
+    # 基础配置
     cat > "$CONFIG_FILE" <<EOF
 DOCKER_ROOT="$DOCKER_ROOT"
 MEDIA_ROOT="$MEDIA_ROOT"
@@ -162,11 +164,13 @@ MUSIC_ROOT="$MUSIC_ROOT"
 HOST_IP="$HOST_IP"
 EOF
 
+    # 端口配置，使用更安全的方式保存
     for service in "${!DEFAULT_PORTS[@]}"; do
-        local port_var="${service}_port"
-        if [[ -n "${!port_var}" ]]; then
-            echo "${service}_port=\"${!port_var}\"" >> "$CONFIG_FILE"
-        fi
+        # 将破折号替换为下划线
+        local var_name="${service//-/_}_port"
+        # 使用默认端口，如果自定义端口存在则使用自定义端口
+        local port_value="${!var_name:-${DEFAULT_PORTS[$service]}}"
+        echo "${var_name}=\"${port_value}\"" >> "$CONFIG_FILE"
     done
 
     success "配置已保存"
@@ -294,36 +298,48 @@ config_wizard() {
     info "欢迎使用NASPT配置向导"
 
     # 设置Docker根目录
-    while [[ -z "$DOCKER_ROOT" ]]; do
+    while true; do
         read -rp "$(echo -e "${COLOR_CYAN}请输入Docker数据存储路径: ${COLOR_RESET}")" DOCKER_ROOT
         if [[ -z "$DOCKER_ROOT" ]]; then
             warning "路径不能为空"
-        elif [[ ! -d "$DOCKER_ROOT" && ! mkdir -p "$DOCKER_ROOT" ]]; then
-            error "无法创建目录: $DOCKER_ROOT"
-            DOCKER_ROOT=""
+            continue
         fi
+        
+        if ! mkdir -p "$DOCKER_ROOT" 2>/dev/null; then
+            error "无法创建目录: $DOCKER_ROOT"
+            continue
+        fi
+        break
     done
 
     # 设置媒体库路径
-    while [[ -z "$MEDIA_ROOT" ]]; do
+    while true; do
         read -rp "$(echo -e "${COLOR_CYAN}请输入媒体库路径: ${COLOR_RESET}")" MEDIA_ROOT
         if [[ -z "$MEDIA_ROOT" ]]; then
             warning "路径不能为空"
-        elif [[ ! -d "$MEDIA_ROOT" && ! mkdir -p "$MEDIA_ROOT" ]]; then
-            error "无法创建目录: $MEDIA_ROOT"
-            MEDIA_ROOT=""
+            continue
         fi
+        
+        if ! mkdir -p "$MEDIA_ROOT" 2>/dev/null; then
+            error "无法创建目录: $MEDIA_ROOT"
+            continue
+        fi
+        break
     done
 
     # 设置音乐库路径
-    while [[ -z "$MUSIC_ROOT" ]]; do
+    while true; do
         read -rp "$(echo -e "${COLOR_CYAN}请输入音乐库路径: ${COLOR_RESET}")" MUSIC_ROOT
         if [[ -z "$MUSIC_ROOT" ]]; then
             warning "路径不能为空"
-        elif [[ ! -d "$MUSIC_ROOT" && ! mkdir -p "$MUSIC_ROOT" ]]; then
-            error "无法创建目录: $MUSIC_ROOT"
-            MUSIC_ROOT=""
+            continue
         fi
+        
+        if ! mkdir -p "$MUSIC_ROOT" 2>/dev/null; then
+            error "无法创建目录: $MUSIC_ROOT"
+            continue
+        fi
+        break
     done
 
     # 设置服务器IP
@@ -864,7 +880,7 @@ init_tr() {
 }
 
 init_emby() {
-    init_service_with_config "emby" "naspt-emby" "ccr.ccs.tencentyun.com/naspt/embyserver:beta" "${DEFAULT_PORTS[emby]}" \
+    init_service_with_config "emby" "naspt-emby" "ccr.ccs.tencentyun.com/naspt/embyserver:latest" "${DEFAULT_PORTS[emby]}" \
         "--privileged \
         -p ${DEFAULT_PORTS[emby]}:8096 \
         --device /dev/dri:/dev/dri \

@@ -184,8 +184,8 @@ services:
 
   emby:
     #image: lovechen/embyserver:latest
-    image: amilys/embyserver:beta
-    #image: registry.cn-hangzhou.aliyuncs.com/ptlj/embyserver:beta
+    image: amilys/embyserver:latest
+    #image: registry.cn-hangzhou.aliyuncs.com/ptlj/embyserver:latest
     container_name: emby
     volumes:
       - ${DOCKER_ROOT_PATH}/emby/config:/config

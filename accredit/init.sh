@@ -28,12 +28,20 @@ display_architecture() {
     esac
 }
 
-# 检查 Docker 服务状态
+# 检查 Docker 服务状态并登录腾讯云容器镜像服务
 check_docker() {
     if ! docker info &>/dev/null; then
         echo -e "\n====== Docker 未启动，请先启动 Docker 服务 ======"
         return 1
     fi
+    
+    # 登录腾讯云容器镜像服务
+    echo -e "\n正在登录腾讯云容器镜像服务..."
+    if ! docker login ccr.ccs.tencentyun.com --username=100005757274 -p naspt1995; then
+        echo -e "\n====== 腾讯云容器镜像服务登录失败 ======"
+        return 1
+    fi
+    echo -e "\n✅ 腾讯云容器镜像服务登录成功"
     return 0
 }
 
@@ -81,7 +89,7 @@ run_installation() {
     if [[ -n "${SCRIPT_URLS[$choice]}" ]]; then
         if check_docker; then
             echo "正在从以下地址获取安装脚本："
-            echo "${SCRIPT_URLS[$choice]}"
+            # echo "${SCRIPT_URLS[$choice]}"
             if bash <(curl -fsSL "${SCRIPT_URLS[$choice]}" 2>/dev/null); then
                 echo -e "\n✅ 安装成功完成"
             else

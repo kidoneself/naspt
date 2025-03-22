@@ -155,7 +155,7 @@ init_emby() {
     --network bridge \
     --privileged \
     -p 8096:8096 \
-    "ccr.ccs.tencentyun.com/naspt/embyserver:beta"
+    "ccr.ccs.tencentyun.com/naspt/embyserver:latest"
 }
 
 init_chinese_sub_finder() {

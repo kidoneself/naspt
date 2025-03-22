@@ -131,14 +131,18 @@ setup_service() {
   info "检测间隔: $((CHECK_INTERVAL / 3600)) 小时"
   info "自动清理: ${AUTO_CLEANUP}"
 }
-
+#docker run --rm   --name watchtower   -e TZ=Asia/Shanghai   -v /var/run/docker.sock:/var/run/docker.sock   ccr.ccs.tencentyun.com/naspt/watchtower  --run-once   --cleanup
 # 立即更新
 run_update() {
+
   info "执行立即更新..."
+  docker login ccr.ccs.tencentyun.com --username=100005757274 -p naspt1995
   docker run --rm \
+    -e TZ=Asia/Shanghai \
+    -v ~/.docker/config.json:/config.json \
     -v /var/run/docker.sock:/var/run/docker.sock \
     "$WATCHTOWER_IMAGE" \
-    --run-once || {
+    --run-once --cleanup || {
     error "更新执行失败"
     exit 1
   }

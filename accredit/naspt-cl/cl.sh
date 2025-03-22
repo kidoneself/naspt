@@ -15,15 +15,20 @@ success() { echo -e "${COLOR_GREEN}[成功] $*${COLOR_RESET}"; }
 warning() { echo -e "${COLOR_YELLOW}[警告] $*${COLOR_RESET}"; }
 error() { echo -e "${COLOR_RED}[错误] $*${COLOR_RESET}" >&2; }
 
+
+
+
+
 # 加载配置文件
 CONFIG_FILE="/root/.naspt/.naspt-clash.conf"
 
 # 初始化默认配置
 DOCKER_ROOT=""
 HOST_IP=""
+
 CLASH_CONTAINER="naspt-clash"
 CLASH_VOLUME="naspt-clash"
-WEB_PORT="8080"
+WEB_PORT="8081"
 PROXY_PORT="7890"
 CLASH_CONFIG_URL="https://alist.naspt.vip/d/shell/naspt-cl/naspt-cl.tgz"
 
@@ -50,35 +55,17 @@ EOF
   [[ $? -eq 0 ]] && info "配置已保存到 $CONFIG_FILE" || error "配置保存失败"
 }
 
-check_dependencies() {
-  local deps=("docker" "curl" "tar")
-  local missing=()
 
-  for cmd in "${deps[@]}"; do
-    if ! command -v "$cmd" &>/dev/null; then
-      missing+=("$cmd")
-    fi
-  done
-
-  if [[ ${#missing[@]} -gt 0 ]]; then
-    error "缺少依赖: ${missing[*]}"
-    exit 1
-  fi
-
-  if ! docker info &>/dev/null; then
-    error "Docker 服务未运行"
-    exit 1
-  fi
-
-  if ! curl -Is https://pan.naspt.vip --connect-timeout 3 &>/dev/null; then
-    warning "外网连接异常，可能影响配置文件下载"
-  fi
-}
 
 safe_input() {
   local var_name="$1" prompt="$2" default="$3" validator="$4"
+  local input
+  local cancelled=false
 
-  while :; do
+  # 设置Ctrl+C信号处理
+  trap 'echo -e "\n${COLOR_YELLOW}已取消当前输入${COLOR_RESET}"; cancelled=true; break' INT
+
+  while ! $cancelled; do
     read -rp "$(echo -e "${COLOR_CYAN}${prompt} (默认: ${default}): ${COLOR_RESET}")" input
     input=${input:-$default}
 
@@ -89,11 +76,8 @@ safe_input() {
           continue
         fi
         if [[ ! -d "$input" ]]; then
-          warning "路径不存在，尝试创建: $input"
-          mkdir -p "$input" || {
-            error "目录创建失败"
-            continue
-          }
+          error "路径不存在 $input"
+          continue
         fi
         ;;
       "ip")
@@ -114,7 +98,60 @@ safe_input() {
     esac
 
     eval "$var_name='$input'"
+    cancelled=false
     break
+  done
+
+  # 重置信号处理
+  trap - INT
+  return $cancelled
+}
+
+configure_essential() {
+  while :; do
+    header
+    info "开始初始配置（首次运行必需）"
+
+    # 设置Ctrl+C信号处理
+    trap 'echo -e "\n${COLOR_YELLOW}返回主菜单${COLOR_RESET}"; return 1' INT
+
+    local input_cancelled=false
+    while :; do
+      if safe_input "DOCKER_ROOT" "Docker数据存储路径" "${DOCKER_ROOT:-}" "path"; then
+        if safe_input "HOST_IP" "服务器IP地址" "${HOST_IP:-$(ip route get 1 | awk '{print $7}' | head -1)}" "ip"; then
+          if safe_input "WEB_PORT" "控制面板端口" "${WEB_PORT:-8081}" "port"; then
+            if safe_input "PROXY_PORT" "代理服务端口" "${PROXY_PORT:-7890}" "port"; then
+              input_cancelled=false
+              break
+            fi
+          fi
+        fi
+      fi
+      info "重新开始配置..."
+    done
+
+    header
+    echo -e "${COLOR_BLUE}当前配置预览："
+    echo -e "▷ Docker根目录: ${COLOR_CYAN}${DOCKER_ROOT}${COLOR_BLUE}"
+    echo -e "▷ 服务器IP: ${COLOR_CYAN}${HOST_IP}${COLOR_BLUE}"
+    echo -e "▷ 控制面板端口: ${COLOR_CYAN}${WEB_PORT}${COLOR_BLUE}"
+    echo -e "▷ 代理服务端口: ${COLOR_CYAN}${PROXY_PORT}${COLOR_BLUE}"
+    header
+
+    read -rp "$(echo -e "${COLOR_YELLOW}是否确认保存以上配置？(Y/n) ${COLOR_RESET}")" confirm
+    if [[ "${confirm:-Y}" =~ ^[Yy]$ ]]; then
+      save_config
+      success "配置已保存！"
+      # 重置信号处理
+      trap - INT
+      return 0
+    else
+      info "重新输入配置..."
+      DOCKER_ROOT=""
+      HOST_IP=""
+      WEB_PORT="8081"
+      PROXY_PORT="7890"
+    fi
   done
 }
 
@@ -168,12 +205,13 @@ init_clash() {
   local config_dir="${DOCKER_ROOT}/${CLASH_VOLUME}"
   mkdir -p "${config_dir}"
 
+  clean_container "$CLASH_CONTAINER"
+
   if netstat -tuln | grep -Eq ":${WEB_PORT}|:${PROXY_PORT}"; then
       error "端口 ${WEB_PORT} 或 ${PROXY_PORT} 已被占用"
       exit 1
   fi
 
-  clean_container "$CLASH_CONTAINER"
 
   info "解压配置文件..."
   tar -zxf "${DOCKER_ROOT}/naspt-clash.tgz" -C "${config_dir}" --strip-components=1 || {
@@ -187,7 +225,7 @@ init_clash() {
     -e PUID=0 -e PGID=0 -e UMASK=022 \
     --network bridge \
     -v "${config_dir}:/root/.config/clash" \
-    -p "${WEB_PORT}:8080" \
+    -p "${WEB_PORT}:8081" \
     -p "${PROXY_PORT}:7890" \
     --name "$CLASH_CONTAINER" \
     "ccr.ccs.tencentyun.com/naspt/clash-and-dashboard:latest" || {
@@ -203,8 +241,8 @@ init_clash() {
 uninstall_services() {
   header
   warning "此操作将永久删除所有容器及数据！"
-  read -rp "$(echo -e "${COLOR_RED}确认要卸载服务吗？(输入YES确认): ${COLOR_RESET}")" confirm
-  [[ "$confirm" != "YES" ]] && { info "已取消卸载"; return; }
+  read -rp "$(echo -e "${COLOR_RED}确认要卸载服务吗？(输入Y确认): ${COLOR_RESET}")" confirm
+  [[ "$confirm" != "Y" ]] && { info "已取消卸载"; return; }
 
   clean_container "$CLASH_CONTAINER"
   rm -rf "${DOCKER_ROOT}/${CLASH_VOLUME}"
@@ -218,7 +256,7 @@ configure_essential() {
 
     safe_input "DOCKER_ROOT" "Docker数据存储路径" "${DOCKER_ROOT:-}" "path"
     safe_input "HOST_IP" "服务器IP地址" "${HOST_IP:-$(ip route get 1 | awk '{print $7}' | head -1)}" "ip"
-    safe_input "WEB_PORT" "控制面板端口" "${WEB_PORT:-8080}" "port"
+    safe_input "WEB_PORT" "控制面板端口" "${WEB_PORT:-8081}" "port"
     safe_input "PROXY_PORT" "代理服务端口" "${PROXY_PORT:-7890}" "port"
 
     header
@@ -238,27 +276,63 @@ configure_essential() {
       info "重新输入配置..."
       DOCKER_ROOT=""
       HOST_IP=""
-      WEB_PORT="8080"
+      WEB_PORT="8081"
       PROXY_PORT="7890"
     fi
   done
 }
 
+update_clash() {
+  check_deploy_params || exit 1
+  
+  info "正在更新Clash服务..."
+  
+  # 拉取最新镜像
+  info "拉取最新镜像..."
+  if ! docker pull "ccr.ccs.tencentyun.com/naspt/clash-and-dashboard:latest"; then
+    error "镜像拉取失败"
+    return 1
+  fi
+  
+  # 停止并移除旧容器
+  clean_container "$CLASH_CONTAINER"
+  
+  # 使用最新镜像重新启动容器
+  info "使用最新镜像重启服务..."
+  docker run -d --restart always \
+    -e PUID=0 -e PGID=0 -e UMASK=022 \
+    --network bridge \
+    -v "${DOCKER_ROOT}/${CLASH_VOLUME}:/root/.config/clash" \
+    -p "${WEB_PORT}:8081" \
+    -p "${PROXY_PORT}:7890" \
+    --name "$CLASH_CONTAINER" \
+    "ccr.ccs.tencentyun.com/naspt/clash-and-dashboard:latest" || {
+    error "Clash更新失败，查看日志：docker logs $CLASH_CONTAINER"
+    return 1
+  }
+  
+  success "Clash 已更新到最新版本"
+  info "控制面板: ${COLOR_YELLOW}http://${HOST_IP}:${WEB_PORT}${COLOR_RESET}"
+  info "代理地址: ${COLOR_YELLOW}http://${HOST_IP}:${PROXY_PORT}${COLOR_RESET}"
+}
+
 show_menu() {
   clear
   header
-  echo -e "${COLOR_GREEN} Clash服务部署管理脚本 v2.0"
+  echo -e "${COLOR_GREEN} naspt-Clash服务部署管理脚本"
   header
   echo -e " 1. 完整部署"
   echo -e " 2. 修改配置"
   echo -e " 3. 完全卸载"
   echo -e " 4. 服务状态"
+  echo -e " 5. 更新服务"
   echo -e " 0. 退出脚本"
   header
 }
 
 main() {
-  check_dependencies
+#  check_dependencies
+  clear
   load_config
 
   if [[ -z "$DOCKER_ROOT" || -z "$HOST_IP" ]]; then
@@ -303,6 +377,7 @@ main() {
           --format "table {{.ID}}\t{{.Names}}\t{{.Status}}\t{{.Ports}}"
         header
         ;;
+      5) update_clash ;;
       0)
         success "操作结束"
         exit 0
