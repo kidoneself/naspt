@@ -43,41 +43,83 @@ EMBY_PORT="8096"
 QB_PORT="9000"
 CSF_PORT="19035"
 MP_PORT="3000"
-PROXY_HOST="http://47.239.17.34:7890"
 CRON_SCHEDULE="0 3 * * *"
-CONFIG_FILE="/root/.naspt/naspt-t1.conf"
+CONFIG_FILE="/root/.naspt/naspt.conf"
 
 ## 配置管理
 #load_config() {
 #  [[ -f "$CONFIG_FILE" ]] && source "$CONFIG_FILE" || warning "使用默认配置"
 #}
 
-load_config() {
-  if [[ -f "$CONFIG_FILE" ]]; then
-    source "$CONFIG_FILE"  # 加载配置文件
+# 配置文件操作函数
+get_ini_value() {
+  local file="$1"
+  local section="$2"
+  local key="$3"
+  local value
+  
+  value=$(sed -n "/^\[$section\]/,/^\[/p" "$file" | grep "^$key=" | cut -d'=' -f2-)
+  echo "$value"
+}
+
+set_ini_value() {
+  local file="$1"
+  local section="$2"
+  local key="$3"
+  local value="$4"
+  
+  # 如果文件不存在，创建文件和section
+  if [[ ! -f "$file" ]]; then
+    mkdir -p "$(dirname "$file")"
+    echo "[$section]" > "$file"
+  fi
+  
+  # 如果section不存在，添加section
+  if ! grep -q "^\[$section\]" "$file"; then
+    echo -e "\n[$section]" >> "$file"
+  fi
+  
+  # 在section中查找并替换key的值，如果不存在则添加
+  if grep -q "^$key=" "$file"; then
+    sed -i "/^\[$section\]/,/^\[/s|^$key=.*|$key=$value|" "$file"
   else
-    warning "使用默认配置"  # 提示未找到配置文件，使用默认值
+    sed -i "/^\[$section\]/a $key=$value" "$file"
   fi
 }
 
+load_config() {
+  if [[ -f "$CONFIG_FILE" ]]; then
+    # 从[service]部分读取所有配置
+    DOCKER_ROOT=$(get_ini_value "$CONFIG_FILE" "service" "DOCKER_ROOT")
+    MEDIA_ROOT=$(get_ini_value "$CONFIG_FILE" "service" "MEDIA_ROOT")
+    HOST_IP=$(get_ini_value "$CONFIG_FILE" "service" "HOST_IP")
+    TR_PORT=$(get_ini_value "$CONFIG_FILE" "service" "TR_PORT")
+    EMBY_PORT=$(get_ini_value "$CONFIG_FILE" "service" "EMBY_PORT")
+    QB_PORT=$(get_ini_value "$CONFIG_FILE" "service" "QB_PORT")
+    CSF_PORT=$(get_ini_value "$CONFIG_FILE" "service" "CSF_PORT")
+    MP_PORT=$(get_ini_value "$CONFIG_FILE" "service" "MP_PORT")
+  else
+    warning "使用默认配置"
+  fi
+}
 
 save_config() {
   local config_dir="$(dirname "$CONFIG_FILE")"
   mkdir -p "$config_dir" || {
     error "无法创建配置目录: $config_dir"
     return 1
-}
+  }
 
-  cat > "$CONFIG_FILE" <<EOF
-DOCKER_ROOT="$DOCKER_ROOT"
-MEDIA_ROOT="$MEDIA_ROOT"
-HOST_IP="$HOST_IP"
-TR_PORT="$TR_PORT"
-EMBY_PORT="$EMBY_PORT"
-QB_PORT="$QB_PORT"
-CSF_PORT="$CSF_PORT"
-MP_PORT="$MP_PORT"
-EOF
+  # 保存所有配置到[service]部分
+  set_ini_value "$CONFIG_FILE" "mp" "DOCKER_ROOT" "$DOCKER_ROOT"
+  set_ini_value "$CONFIG_FILE" "mp" "MEDIA_ROOT" "$MEDIA_ROOT"
+  set_ini_value "$CONFIG_FILE" "mp" "HOST_IP" "$HOST_IP"
+  set_ini_value "$CONFIG_FILE" "mp" "TR_PORT" "$TR_PORT"
+  set_ini_value "$CONFIG_FILE" "mp" "EMBY_PORT" "$EMBY_PORT"
+  set_ini_value "$CONFIG_FILE" "mp" "QB_PORT" "$QB_PORT"
+  set_ini_value "$CONFIG_FILE" "mp" "CSF_PORT" "$CSF_PORT"
+  set_ini_value "$CONFIG_FILE" "mp" "MP_PORT" "$MP_PORT"
+  
   [[ $? -eq 0 ]] && info "配置已保存" || error "配置保存失败"
 }
 

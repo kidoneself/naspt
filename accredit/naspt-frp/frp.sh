@@ -16,20 +16,58 @@ header() { echo -e "${COLOR_BLUE}==========================================${COL
 
 # 配置文件路径
 CONFIG_DIR="/root/.naspt"
-CONFIG_FILE="${CONFIG_DIR}/.naspt-frp.conf"
+CONFIG_FILE="/root/.naspt/naspt.conf"
 
 # 默认配置
-declare -A CONFIG=(
-  ["SERVER_ID"]=""
-  ["HOST_NAME"]=""
-  ["FRP_SERVER"]="91.132.146.106"
-  ["FRP_AUTH_KEY"]="9b83aed0cf81aef6d1c5fdb6274b4cb8"
-)
+SERVER_ID=""
+HOST_NAME=""
+FRP_SERVER="91.132.146.106"
+FRP_AUTH_KEY="9b83aed0cf81aef6d1c5fdb6274b4cb8"
+
+# 配置文件操作函数
+get_ini_value() {
+  local file="$1"
+  local section="$2"
+  local key="$3"
+  local value
+  
+  value=$(sed -n "/^\[$section\]/,/^\[/p" "$file" | grep "^$key=" | cut -d'=' -f2-)
+  echo "$value"
+}
+
+set_ini_value() {
+  local file="$1"
+  local section="$2"
+  local key="$3"
+  local value="$4"
+  
+  # 如果文件不存在，创建文件和section
+  if [[ ! -f "$file" ]]; then
+    mkdir -p "$(dirname "$file")"
+    echo "[$section]" > "$file"
+  fi
+  
+  # 如果section不存在，添加section
+  if ! grep -q "^\[$section\]" "$file"; then
+    echo -e "\n[$section]" >> "$file"
+  fi
+  
+  # 在section中查找并替换key的值，如果不存在则添加
+  if grep -q "^$key=" "$file"; then
+    sed -i "/^\[$section\]/,/^\[/s|^$key=.*|$key=$value|" "$file"
+  else
+    sed -i "/^\[$section\]/a $key=$value" "$file"
+  fi
+}
 
 # 加载配置
 load_config() {
   if [[ -f "$CONFIG_FILE" ]]; then
-    source "$CONFIG_FILE" &>/dev/null
+    # 从[frp]部分读取所有配置
+    SERVER_ID=$(get_ini_value "$CONFIG_FILE" "frp" "SERVER_ID")
+    HOST_NAME=$(get_ini_value "$CONFIG_FILE" "frp" "HOST_NAME")
+    FRP_SERVER=$(get_ini_value "$CONFIG_FILE" "frp" "FRP_SERVER")
+    FRP_AUTH_KEY=$(get_ini_value "$CONFIG_FILE" "frp" "FRP_AUTH_KEY")
     success "加载历史配置成功"
     return 0
   fi
@@ -39,19 +77,24 @@ load_config() {
 # 保存配置
 save_config() {
   mkdir -p "$CONFIG_DIR"
-  declare -p CONFIG > "$CONFIG_FILE"
+  
+  # 保存所有配置到[frp]部分
+  set_ini_value "$CONFIG_FILE" "frp" "SERVER_ID" "$SERVER_ID"
+  set_ini_value "$CONFIG_FILE" "frp" "HOST_NAME" "$HOST_NAME"
+  set_ini_value "$CONFIG_FILE" "frp" "FRP_SERVER" "$FRP_SERVER"
+  set_ini_value "$CONFIG_FILE" "frp" "FRP_AUTH_KEY" "$FRP_AUTH_KEY"
 }
 
 # 参数解析
 parse_command() {
   local input=$1
-  CONFIG[SERVER_ID]=$(grep -oP -- '-s\s+\K\S+' <<< "$input" | tr -d '"' | head -1)
-  CONFIG[HOST_NAME]=$(grep -oP -- '-i\s+\K\S+' <<< "$input" | sed 's/naspt.c.//;s/"//g' | head -1)
-  CONFIG[FRP_SERVER]=$(grep -oP -- '-r\s+\K\S+' <<< "$input" | tr -d '"' | head -1)
-  CONFIG[FRP_AUTH_KEY]=$(grep -oP -- '-a\s+\K\S+' <<< "$input" | tr -d '"' | head -1)
+  SERVER_ID=$(grep -oP -- '-s\s+\K\S+' <<< "$input" | tr -d '"')
+  HOST_NAME=$(grep -oP -- '-i\s+\K\S+' <<< "$input" | sed 's/naspt.c.//;s/"//g')
+  FRP_SERVER=$(grep -oP -- '-r\s+\K\S+' <<< "$input" | tr -d '"')
+  FRP_AUTH_KEY=$(grep -oP -- '-a\s+\K\S+' <<< "$input" | tr -d '"')
 
-  [[ "${CONFIG[SERVER_ID]}" =~ ^[a-f0-9]{8}- ]] || return 1
-  [[ -n "${CONFIG[HOST_NAME]}" ]] || return 1
+  [[ "$SERVER_ID" =~ ^[a-f0-9]{8}- ]] || return 1
+  [[ -n "$HOST_NAME" ]] || return 1
   return 0
 }
 
@@ -78,16 +121,16 @@ deploy_frp() {
     --restart=unless-stopped \
     --name naspt-frp \
     "ccr.ccs.tencentyun.com/naspt/frp-panel" client \
-    -s "${CONFIG[SERVER_ID]}" \
-    -i "naspt.c.${CONFIG[HOST_NAME]}" \
-    -a "${CONFIG[FRP_AUTH_KEY]}" \
-    -r "${CONFIG[FRP_SERVER]}" \
+    -s "$SERVER_ID" \
+    -i "naspt.c.$HOST_NAME" \
+    -a "$FRP_AUTH_KEY" \
+    -r "$FRP_SERVER" \
     -c 9001 \
     -p 9000 \
     -e http; then
 
     success "部署完成"
-    info "api回调地址: http://${CONFIG[HOST_NAME]}.8768611.xyz:8888/api/v1/message/?token=nasptnasptnasptnaspt"
+    info "api回调地址: http://${HOST_NAME}.8768611.xyz:8888/api/v1/message/?token=nasptnasptnasptnaspt"
   else
     error "容器启动失败"
     exit 1
@@ -120,10 +163,10 @@ view_config() {
 
   if [[ -f "$CONFIG_FILE" ]]; then
     success "配置文件路径: ${COLOR_YELLOW}${CONFIG_FILE}${COLOR_RESET}"
-    echo -e " 服务ID\t: ${COLOR_YELLOW}${CONFIG[SERVER_ID]}${COLOR_RESET}"
-    echo -e " 主机名称\t: ${COLOR_YELLOW}${CONFIG[HOST_NAME]}${COLOR_RESET}"
-    echo -e " FRP服务器\t: ${COLOR_YELLOW}${CONFIG[FRP_SERVER]}${COLOR_RESET}"
-    echo -e " 认证密钥\t: ${COLOR_YELLOW}${CONFIG[FRP_AUTH_KEY]}${COLOR_RESET}"
+    echo -e " 服务ID\t: ${COLOR_YELLOW}$SERVER_ID${COLOR_RESET}"
+    echo -e " 主机名称\t: ${COLOR_YELLOW}$HOST_NAME${COLOR_RESET}"
+    echo -e " FRP服务器\t: ${COLOR_YELLOW}$FRP_SERVER${COLOR_RESET}"
+    echo -e " 认证密钥\t: ${COLOR_YELLOW}$FRP_AUTH_KEY${COLOR_RESET}"
   else
     error "未找到配置文件"
   fi
@@ -154,7 +197,7 @@ check_status() {
   if docker ps -a --format '{{.Names}}' | grep -q "^naspt-frp$"; then
     echo -e " FRP 状态: ${COLOR_GREEN}已部署${COLOR_RESET}"
     echo -e " 容器名称: naspt-frp"
-    echo -e " API地址: http://${CONFIG[HOST_NAME]}.8768611.xyz:8888/api/v1/message/?token=nasptnasptnasptnaspt"
+    echo -e " API地址: http://${HOST_NAME}.8768611.xyz:8888/api/v1/message/?token=nasptnasptnasptnaspt"
   else
     echo -e " FRP 状态: ${COLOR_RED}未部署${COLOR_RESET}"
   fi

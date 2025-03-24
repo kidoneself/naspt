@@ -38,21 +38,51 @@ declare -A SERVICES=(
 DOCKER_ROOT=""
 MUSIC_ROOT=""
 HOST_IP=$(ip route get 1 | awk '{print $7}' | head -1)
-CONFIG_FILE="/root/.naspt/naspt-music.conf"
+CONFIG_FILE="/root/.naspt/naspt.conf"
 
+# 配置文件操作函数
+get_ini_value() {
+  local file="$1"
+  local section="$2"
+  local key="$3"
+  local value
+  
+  value=$(sed -n "/^\[$section\]/,/^\[/p" "$file" | grep "^$key=" | cut -d'=' -f2-)
+  echo "$value"
+}
 
-# 网络检查
-check_network() {
-    info "检查网络连接..."
-    if ! ping -c 1 114.114.114.114 >/dev/null 2>&1; then
-        warning "网络连接不稳定，请检查网络设置"
-    fi
+set_ini_value() {
+  local file="$1"
+  local section="$2"
+  local key="$3"
+  local value="$4"
+  
+  # 如果文件不存在，创建文件和section
+  if [[ ! -f "$file" ]]; then
+    mkdir -p "$(dirname "$file")"
+    echo "[$section]" > "$file"
+  fi
+  
+  # 如果section不存在，添加section
+  if ! grep -q "^\[$section\]" "$file"; then
+    echo -e "\n[$section]" >> "$file"
+  fi
+  
+  # 在section中查找并替换key的值，如果不存在则添加
+  if grep -q "^$key=" "$file"; then
+    sed -i "/^\[$section\]/,/^\[/s|^$key=.*|$key=$value|" "$file"
+  else
+    sed -i "/^\[$section\]/a $key=$value" "$file"
+  fi
 }
 
 # 配置管理
 load_config() {
     if [[ -f "$CONFIG_FILE" ]]; then
-        source "$CONFIG_FILE"
+        # 从[music]部分读取所有配置
+        DOCKER_ROOT=$(get_ini_value "$CONFIG_FILE" "music" "DOCKER_ROOT")
+        MUSIC_ROOT=$(get_ini_value "$CONFIG_FILE" "music" "MUSIC_ROOT")
+        HOST_IP=$(get_ini_value "$CONFIG_FILE" "music" "HOST_IP")
         success "已加载配置文件"
     else
         warning "使用默认配置"
@@ -63,11 +93,10 @@ save_config() {
     local config_dir="$(dirname "$CONFIG_FILE")"
     mkdir -p "$config_dir" || handle_error "无法创建配置目录"
 
-    cat > "$CONFIG_FILE" <<EOF
-DOCKER_ROOT="$DOCKER_ROOT"
-MUSIC_ROOT="$MUSIC_ROOT"
-HOST_IP="$HOST_IP"
-EOF
+    # 保存所有配置到[music]部分
+    set_ini_value "$CONFIG_FILE" "music" "DOCKER_ROOT" "$DOCKER_ROOT"
+    set_ini_value "$CONFIG_FILE" "music" "MUSIC_ROOT" "$MUSIC_ROOT"
+    set_ini_value "$CONFIG_FILE" "music" "HOST_IP" "$HOST_IP"
 
     success "配置已保存"
     backup_config
@@ -77,10 +106,11 @@ EOF
 backup_config() {
     local backup_dir="/root/.naspt/backup"
     local timestamp=$(date +%Y%m%d_%H%M%S)
+    local backup_file="$backup_dir/music_config_$timestamp.ini"
 
     mkdir -p "$backup_dir"
-    tar -czf "$backup_dir/music_config_$timestamp.tar.gz" -C "$(dirname $CONFIG_FILE)" "$(basename $CONFIG_FILE)"
-    success "配置已备份到 $backup_dir/music_config_$timestamp.tar.gz"
+    cp "$CONFIG_FILE" "$backup_file"
+    success "配置已备份到 $backup_file"
 }
 
 # 进度显示

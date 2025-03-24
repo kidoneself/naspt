@@ -16,18 +16,61 @@ warning() { echo -e "${COLOR_YELLOW}[警告] $*${COLOR_RESET}"; }
 error() { echo -e "${COLOR_RED}[错误] $*${COLOR_RESET}" >&2; }
 
 # 加载配置文件
-CONFIG_FILE="/root/.naspt/.naspt-watchtower.conf"
+CONFIG_FILE="/root/.naspt/naspt.conf"
 
 # 初始化默认配置
-DOCKER_ROOT="/opt/docker"
+DOCKER_ROOT=""
 CHECK_INTERVAL="10800"
 AUTO_CLEANUP="true"
 WATCHTOWER_IMAGE="ccr.ccs.tencentyun.com/naspt/watchtower:latest"
 CONTAINER_NAME="naspt-dkup"
 
-# 配置管理
+# 配置文件操作函数
+get_ini_value() {
+  local file="$1"
+  local section="$2"
+  local key="$3"
+  local value
+  
+  value=$(sed -n "/^\[$section\]/,/^\[/p" "$file" | grep "^$key=" | cut -d'=' -f2-)
+  echo "$value"
+}
+
+set_ini_value() {
+  local file="$1"
+  local section="$2"
+  local key="$3"
+  local value="$4"
+  
+  # 如果文件不存在，创建文件和section
+  if [[ ! -f "$file" ]]; then
+    mkdir -p "$(dirname "$file")"
+    echo "[$section]" > "$file"
+  fi
+  
+  # 如果section不存在，添加section
+  if ! grep -q "^\[$section\]" "$file"; then
+    echo -e "\n[$section]" >> "$file"
+  fi
+  
+  # 在section中查找并替换key的值，如果不存在则添加
+  if grep -q "^$key=" "$file"; then
+    sed -i "/^\[$section\]/,/^\[/s|^$key=.*|$key=$value|" "$file"
+  else
+    sed -i "/^\[$section\]/a $key=$value" "$file"
+  fi
+}
+
 load_config() {
-  [[ -f "$CONFIG_FILE" ]] && source "$CONFIG_FILE" || warning "使用默认配置"
+  if [[ -f "$CONFIG_FILE" ]]; then
+    # 从[watchtower]部分读取所有配置
+    DOCKER_ROOT=$(get_ini_value "$CONFIG_FILE" "watchtower" "DOCKER_ROOT")
+    CHECK_INTERVAL=$(get_ini_value "$CONFIG_FILE" "watchtower" "CHECK_INTERVAL")
+    AUTO_CLEANUP=$(get_ini_value "$CONFIG_FILE" "watchtower" "AUTO_CLEANUP")
+    CONTAINER_NAME=$(get_ini_value "$CONFIG_FILE" "watchtower" "CONTAINER_NAME")
+  else
+    warning "使用默认配置"
+  fi
 }
 
 save_config() {
@@ -37,13 +80,13 @@ save_config() {
     return 1
   }
 
-  cat > "$CONFIG_FILE" <<EOF
-DOCKER_ROOT="$DOCKER_ROOT"
-CHECK_INTERVAL="$CHECK_INTERVAL"
-AUTO_CLEANUP="$AUTO_CLEANUP"
-CONTAINER_NAME="$CONTAINER_NAME"
-EOF
-  [[ $? -eq 0 ]] && info "配置已保存到 $CONFIG_FILE" || error "配置保存失败"
+  # 保存所有配置到[watchtower]部分
+  set_ini_value "$CONFIG_FILE" "watchtower" "DOCKER_ROOT" "$DOCKER_ROOT"
+  set_ini_value "$CONFIG_FILE" "watchtower" "CHECK_INTERVAL" "$CHECK_INTERVAL"
+  set_ini_value "$CONFIG_FILE" "watchtower" "AUTO_CLEANUP" "$AUTO_CLEANUP"
+  set_ini_value "$CONFIG_FILE" "watchtower" "CONTAINER_NAME" "$CONTAINER_NAME"
+  
+  [[ $? -eq 0 ]] && info "配置已保存" || error "配置保存失败"
 }
 
 # 系统检查

@@ -16,7 +16,7 @@ warning() { echo -e "${COLOR_YELLOW}[警告] $*${COLOR_RESET}"; }
 error() { echo -e "${COLOR_RED}[错误] $*${COLOR_RESET}" >&2; }
 
 # 配置文件
-CONFIG_FILE="/root/.naspt/.media-services.conf"
+CONFIG_FILE="/root/.naspt/naspt.conf"
 
 # 默认配置
 DOCKER_ROOT=""
@@ -26,9 +26,53 @@ JELLYFIN_PORT="8097"
 METATUBE_PORT="8900"
 ENABLE_HWACCEL="N"
 
-# 配置管理
+# 配置文件操作函数
+get_ini_value() {
+  local file="$1"
+  local section="$2"
+  local key="$3"
+  local value
+  
+  value=$(sed -n "/^\[$section\]/,/^\[/p" "$file" | grep "^$key=" | cut -d'=' -f2-)
+  echo "$value"
+}
+
+set_ini_value() {
+  local file="$1"
+  local section="$2"
+  local key="$3"
+  local value="$4"
+  
+  # 如果文件不存在，创建文件和section
+  if [[ ! -f "$file" ]]; then
+    mkdir -p "$(dirname "$file")"
+    echo "[$section]" > "$file"
+  fi
+  
+  # 如果section不存在，添加section
+  if ! grep -q "^\[$section\]" "$file"; then
+    echo -e "\n[$section]" >> "$file"
+  fi
+  
+  # 在section中查找并替换key的值，如果不存在则添加
+  if grep -q "^$key=" "$file"; then
+    sed -i "/^\[$section\]/,/^\[/s|^$key=.*|$key=$value|" "$file"
+  else
+    sed -i "/^\[$section\]/a $key=$value" "$file"
+  fi
+}
+
 load_config() {
-  [[ -f "$CONFIG_FILE" ]] && source "$CONFIG_FILE" || warning "使用默认配置"
+  if [[ -f "$CONFIG_FILE" ]]; then
+    # 从[laddy]部分读取所有配置
+    DOCKER_ROOT=$(get_ini_value "$CONFIG_FILE" "laddy" "DOCKER_ROOT")
+    MEDIA_ROOT=$(get_ini_value "$CONFIG_FILE" "laddy" "MEDIA_ROOT")
+    HOST_IP=$(get_ini_value "$CONFIG_FILE" "laddy" "HOST_IP")
+    JELLYFIN_PORT=$(get_ini_value "$CONFIG_FILE" "laddy" "JELLYFIN_PORT")
+    METATUBE_PORT=$(get_ini_value "$CONFIG_FILE" "laddy" "METATUBE_PORT")
+  else
+    warning "使用默认配置"
+  fi
 }
 
 save_config() {
@@ -38,13 +82,13 @@ save_config() {
     return 1
   }
 
-  cat > "$CONFIG_FILE" <<EOF
-DOCKER_ROOT="$DOCKER_ROOT"
-MEDIA_ROOT="$MEDIA_ROOT"
-HOST_IP="$HOST_IP"
-JELLYFIN_PORT="$JELLYFIN_PORT"
-METATUBE_PORT="$METATUBE_PORT"
-EOF
+  # 保存所有配置到[jellyfin]部分
+  set_ini_value "$CONFIG_FILE" "jellyfin" "DOCKER_ROOT" "$DOCKER_ROOT"
+  set_ini_value "$CONFIG_FILE" "jellyfin" "MEDIA_ROOT" "$MEDIA_ROOT"
+  set_ini_value "$CONFIG_FILE" "jellyfin" "HOST_IP" "$HOST_IP"
+  set_ini_value "$CONFIG_FILE" "jellyfin" "JELLYFIN_PORT" "$JELLYFIN_PORT"
+  set_ini_value "$CONFIG_FILE" "jellyfin" "METATUBE_PORT" "$METATUBE_PORT"
+  
   [[ $? -eq 0 ]] && info "配置已保存" || error "配置保存失败"
 }
 

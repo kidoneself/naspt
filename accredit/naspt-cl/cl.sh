@@ -17,24 +17,95 @@ error() { echo -e "${COLOR_RED}[错误] $*${COLOR_RESET}" >&2; }
 
 
 
-
-
 # 加载配置文件
-CONFIG_FILE="/root/.naspt/.naspt-clash.conf"
+CONFIG_FILE="/root/.naspt/naspt.conf"
 
 # 初始化默认配置
 DOCKER_ROOT=""
 HOST_IP=""
-
 CLASH_CONTAINER="naspt-clash"
 CLASH_VOLUME="naspt-clash"
 WEB_PORT="8081"
 PROXY_PORT="7890"
 CLASH_CONFIG_URL="https://alist.naspt.vip/d/shell/naspt-cl/naspt-cl.tgz"
+IMAGE_SOURCE="private"  # 新增：镜像源选择，private 或 official
 
-# 配置管理
+
+declare -A DOCKER_IMAGES=(
+    ["clash"]="ccr.ccs.tencentyun.com/naspt/clash-and-dashboard:latest"
+)
+
+declare -A OFFICIAL_DOCKER_IMAGES=(
+    ["clash"]="laoyutang/clash-and-dashboard:latest"
+)
+
+# 获取当前使用的镜像
+get_current_image() {
+    local image_type="$1"
+    local image=""
+    
+    if [[ "$IMAGE_SOURCE" == "official" ]]; then
+        image="${OFFICIAL_DOCKER_IMAGES[$image_type]}"
+    else
+        image="${DOCKER_IMAGES[$image_type]}"
+    fi
+    
+    # 使用stderr输出日志信息，这样不会影响函数返回值
+    echo -e "${COLOR_CYAN}[信息] 使用${IMAGE_SOURCE}镜像源: ${image}${COLOR_RESET}" >&2
+    printf "%s" "$image"
+}
+
+# 配置文件操作函数
+get_ini_value() {
+  local file="$1"
+  local section="$2"
+  local key="$3"
+  local value
+  
+  value=$(sed -n "/^\[$section\]/,/^\[/p" "$file" | grep "^$key=" | cut -d'=' -f2-)
+  echo "$value"
+}
+
+set_ini_value() {
+  local file="$1"
+  local section="$2"
+  local key="$3"
+  local value="$4"
+  
+  # 如果文件不存在，创建文件和section
+  if [[ ! -f "$file" ]]; then
+    mkdir -p "$(dirname "$file")"
+    echo "[$section]" > "$file"
+  fi
+  
+  # 如果section不存在，添加section
+  if ! grep -q "^\[$section\]" "$file"; then
+    echo -e "\n[$section]" >> "$file"
+  fi
+  
+  # 在section中查找并替换key的值，如果不存在则添加
+  if grep -q "^$key=" "$file"; then
+    sed -i "/^\[$section\]/,/^\[/s|^$key=.*|$key=$value|" "$file"
+  else
+    sed -i "/^\[$section\]/a $key=$value" "$file"
+  fi
+}
+
 load_config() {
-  [[ -f "$CONFIG_FILE" ]] && source "$CONFIG_FILE" || warning "使用默认配置"
+  if [[ -f "$CONFIG_FILE" ]]; then
+    # 从[clash]部分读取所有配置
+    DOCKER_ROOT=$(get_ini_value "$CONFIG_FILE" "clash" "DOCKER_ROOT")
+    HOST_IP=$(get_ini_value "$CONFIG_FILE" "clash" "HOST_IP")
+    CLASH_CONTAINER=$(get_ini_value "$CONFIG_FILE" "clash" "CLASH_CONTAINER")
+    CLASH_VOLUME=$(get_ini_value "$CONFIG_FILE" "clash" "CLASH_VOLUME")
+    WEB_PORT=$(get_ini_value "$CONFIG_FILE" "clash" "WEB_PORT")
+    PROXY_PORT=$(get_ini_value "$CONFIG_FILE" "clash" "PROXY_PORT")
+    IMAGE_SOURCE=$(get_ini_value "$CONFIG_FILE" "clash" "IMAGE_SOURCE")
+    # 如果IMAGE_SOURCE为空，设置默认值
+    [[ -z "$IMAGE_SOURCE" ]] && IMAGE_SOURCE="private"
+  else
+    warning "使用默认配置"
+  fi
 }
 
 save_config() {
@@ -44,15 +115,16 @@ save_config() {
     return 1
   }
 
-  cat > "$CONFIG_FILE" <<EOF
-DOCKER_ROOT="$DOCKER_ROOT"
-HOST_IP="$HOST_IP"
-CLASH_CONTAINER="$CLASH_CONTAINER"
-CLASH_VOLUME="$CLASH_VOLUME"
-WEB_PORT="$WEB_PORT"
-PROXY_PORT="$PROXY_PORT"
-EOF
-  [[ $? -eq 0 ]] && info "配置已保存到 $CONFIG_FILE" || error "配置保存失败"
+  # 保存所有配置到[clash]部分
+  set_ini_value "$CONFIG_FILE" "clash" "DOCKER_ROOT" "$DOCKER_ROOT"
+  set_ini_value "$CONFIG_FILE" "clash" "HOST_IP" "$HOST_IP"
+  set_ini_value "$CONFIG_FILE" "clash" "CLASH_CONTAINER" "$CLASH_CONTAINER"
+  set_ini_value "$CONFIG_FILE" "clash" "CLASH_VOLUME" "$CLASH_VOLUME"
+  set_ini_value "$CONFIG_FILE" "clash" "WEB_PORT" "$WEB_PORT"
+  set_ini_value "$CONFIG_FILE" "clash" "PROXY_PORT" "$PROXY_PORT"
+  set_ini_value "$CONFIG_FILE" "clash" "IMAGE_SOURCE" "$IMAGE_SOURCE"
+  
+  [[ $? -eq 0 ]] && info "配置已保存" || error "配置保存失败"
 }
 
 
@@ -95,6 +167,12 @@ safe_input() {
           continue
         fi
         ;;
+      "image_source")
+        if [[ ! "$input" =~ ^(private|official)$ ]]; then
+          error "无效的镜像源选择，请输入 private 或 official"
+          continue
+        fi
+        ;;
     esac
 
     eval "$var_name='$input'"
@@ -104,7 +182,8 @@ safe_input() {
 
   # 重置信号处理
   trap - INT
-  return $cancelled
+  # 使用数字返回值：0 表示成功，1 表示取消
+  $cancelled && return 1 || return 0
 }
 
 configure_essential() {
@@ -121,8 +200,10 @@ configure_essential() {
         if safe_input "HOST_IP" "服务器IP地址" "${HOST_IP:-$(ip route get 1 | awk '{print $7}' | head -1)}" "ip"; then
           if safe_input "WEB_PORT" "控制面板端口" "${WEB_PORT:-8081}" "port"; then
             if safe_input "PROXY_PORT" "代理服务端口" "${PROXY_PORT:-7890}" "port"; then
-              input_cancelled=false
-              break
+              if safe_input "IMAGE_SOURCE" "镜像源选择(private/official)" "${IMAGE_SOURCE:-private}" "image_source"; then
+                input_cancelled=false
+                break
+              fi
             fi
           fi
         fi
@@ -136,6 +217,7 @@ configure_essential() {
     echo -e "▷ 服务器IP: ${COLOR_CYAN}${HOST_IP}${COLOR_BLUE}"
     echo -e "▷ 控制面板端口: ${COLOR_CYAN}${WEB_PORT}${COLOR_BLUE}"
     echo -e "▷ 代理服务端口: ${COLOR_CYAN}${PROXY_PORT}${COLOR_BLUE}"
+    echo -e "▷ 镜像源: ${COLOR_CYAN}${IMAGE_SOURCE}${COLOR_BLUE}"
     header
 
     read -rp "$(echo -e "${COLOR_YELLOW}是否确认保存以上配置？(Y/n) ${COLOR_RESET}")" confirm
@@ -147,10 +229,12 @@ configure_essential() {
       return 0
     else
       info "重新输入配置..."
+      # 重置所有配置项
       DOCKER_ROOT=""
       HOST_IP=""
       WEB_PORT="8081"
       PROXY_PORT="7890"
+      IMAGE_SOURCE="private"  # 确保也重置镜像源
     fi
   done
 }
@@ -225,10 +309,10 @@ init_clash() {
     -e PUID=0 -e PGID=0 -e UMASK=022 \
     --network bridge \
     -v "${config_dir}:/root/.config/clash" \
-    -p "${WEB_PORT}:8081" \
+    -p "${WEB_PORT}:8080" \
     -p "${PROXY_PORT}:7890" \
     --name "$CLASH_CONTAINER" \
-    "ccr.ccs.tencentyun.com/naspt/clash-and-dashboard:latest" || {
+    "$(get_current_image clash)" || {
     error "Clash启动失败，查看日志：docker logs $CLASH_CONTAINER"
     exit 1
   }
@@ -249,39 +333,6 @@ uninstall_services() {
   success "所有服务及数据已移除"
 }
 
-configure_essential() {
-  while :; do
-    header
-    info "开始初始配置（首次运行必需）"
-
-    safe_input "DOCKER_ROOT" "Docker数据存储路径" "${DOCKER_ROOT:-}" "path"
-    safe_input "HOST_IP" "服务器IP地址" "${HOST_IP:-$(ip route get 1 | awk '{print $7}' | head -1)}" "ip"
-    safe_input "WEB_PORT" "控制面板端口" "${WEB_PORT:-8081}" "port"
-    safe_input "PROXY_PORT" "代理服务端口" "${PROXY_PORT:-7890}" "port"
-
-    header
-    echo -e "${COLOR_BLUE}当前配置预览："
-    echo -e "▷ Docker根目录: ${COLOR_CYAN}${DOCKER_ROOT}${COLOR_BLUE}"
-    echo -e "▷ 服务器IP: ${COLOR_CYAN}${HOST_IP}${COLOR_BLUE}"
-    echo -e "▷ 控制面板端口: ${COLOR_CYAN}${WEB_PORT}${COLOR_BLUE}"
-    echo -e "▷ 代理服务端口: ${COLOR_CYAN}${PROXY_PORT}${COLOR_BLUE}"
-    header
-
-    read -rp "$(echo -e "${COLOR_YELLOW}是否确认保存以上配置？(Y/n) ${COLOR_RESET}")" confirm
-    if [[ "${confirm:-Y}" =~ ^[Yy]$ ]]; then
-      save_config
-      success "配置已保存！"
-      return 0
-    else
-      info "重新输入配置..."
-      DOCKER_ROOT=""
-      HOST_IP=""
-      WEB_PORT="8081"
-      PROXY_PORT="7890"
-    fi
-  done
-}
-
 update_clash() {
   check_deploy_params || exit 1
   
@@ -289,7 +340,7 @@ update_clash() {
   
   # 拉取最新镜像
   info "拉取最新镜像..."
-  if ! docker pull "ccr.ccs.tencentyun.com/naspt/clash-and-dashboard:latest"; then
+  if ! docker pull "$(get_current_image clash)"; then
     error "镜像拉取失败"
     return 1
   fi
@@ -303,10 +354,10 @@ update_clash() {
     -e PUID=0 -e PGID=0 -e UMASK=022 \
     --network bridge \
     -v "${DOCKER_ROOT}/${CLASH_VOLUME}:/root/.config/clash" \
-    -p "${WEB_PORT}:8081" \
+    -p "${WEB_PORT}:8080" \
     -p "${PROXY_PORT}:7890" \
     --name "$CLASH_CONTAINER" \
-    "ccr.ccs.tencentyun.com/naspt/clash-and-dashboard:latest" || {
+    "$(get_current_image clash)" || {
     error "Clash更新失败，查看日志：docker logs $CLASH_CONTAINER"
     return 1
   }
@@ -353,6 +404,7 @@ main() {
           echo -e "▷ 服务器地址: ${COLOR_CYAN}${HOST_IP}${COLOR_RESET}"
           echo -e "▷ 控制面板端口: ${COLOR_CYAN}${WEB_PORT}${COLOR_RESET}"
           echo -e "▷ 代理服务端口: ${COLOR_CYAN}${PROXY_PORT}${COLOR_RESET}"
+          echo -e "▷ 镜像源: ${COLOR_CYAN}${IMAGE_SOURCE}${COLOR_RESET}"
           header
           read -rp "$(echo -e "${COLOR_YELLOW}确认使用以上配置进行部署？(Y/n) ${COLOR_RESET}")" confirm
 

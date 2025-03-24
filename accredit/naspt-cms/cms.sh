@@ -17,7 +17,7 @@ warning() { echo -e "${COLOR_YELLOW}[警告] $*${COLOR_RESET}"; }
 error() { echo -e "${COLOR_RED}[错误] $*${COLOR_RESET}" >&2; }
 
 # 加载配置文件
-CONFIG_FILE="/root/.naspt/.naspt-cms.conf"
+CONFIG_FILE="/root/.naspt/naspt.conf"
 
 # 初始化默认配置
 DOCKER_ROOT=""
@@ -31,9 +31,53 @@ EMBY_IMAGE="ccr.ccs.tencentyun.com/naspt/emby_unlockd:latest"
 CMS_IMAGE="ccr.ccs.tencentyun.com/naspt/cloud-media-sync:latest"
 EMBY_CONFIG_URL="https://naspt.oss-cn-shanghai.aliyuncs.com/cms/115-emby.tgz"
 
-# 配置管理
+# 配置文件操作函数
+get_ini_value() {
+  local file="$1"
+  local section="$2"
+  local key="$3"
+  local value
+  
+  value=$(sed -n "/^\[$section\]/,/^\[/p" "$file" | grep "^$key=" | cut -d'=' -f2-)
+  echo "$value"
+}
+
+set_ini_value() {
+  local file="$1"
+  local section="$2"
+  local key="$3"
+  local value="$4"
+  
+  # 如果文件不存在，创建文件和section
+  if [[ ! -f "$file" ]]; then
+    mkdir -p "$(dirname "$file")"
+    echo "[$section]" > "$file"
+  fi
+  
+  # 如果section不存在，添加section
+  if ! grep -q "^\[$section\]" "$file"; then
+    echo -e "\n[$section]" >> "$file"
+  fi
+  
+  # 在section中查找并替换key的值，如果不存在则添加
+  if grep -q "^$key=" "$file"; then
+    sed -i "/^\[$section\]/,/^\[/s|^$key=.*|$key=$value|" "$file"
+  else
+    sed -i "/^\[$section\]/a $key=$value" "$file"
+  fi
+}
+
 load_config() {
-  [[ -f "$CONFIG_FILE" ]] && source "$CONFIG_FILE" || warning "使用默认配置"
+  if [[ -f "$CONFIG_FILE" ]]; then
+    # 从[service]部分读取所有配置
+    DOCKER_ROOT=$(get_ini_value "$CONFIG_FILE" "service" "DOCKER_ROOT")
+    VIDEO_ROOT=$(get_ini_value "$CONFIG_FILE" "service" "VIDEO_ROOT")
+    HOST_IP=$(get_ini_value "$CONFIG_FILE" "service" "HOST_IP")
+    EMBY_CONTAINER=$(get_ini_value "$CONFIG_FILE" "service" "EMBY_CONTAINER")
+    CMS_CONTAINER=$(get_ini_value "$CONFIG_FILE" "service" "CMS_CONTAINER")
+  else
+    warning "使用默认配置"
+  fi
 }
 
 save_config() {
@@ -43,14 +87,14 @@ save_config() {
     return 1
   }
 
-  cat > "$CONFIG_FILE" <<EOF
-DOCKER_ROOT="$DOCKER_ROOT"
-VIDEO_ROOT="$VIDEO_ROOT"
-HOST_IP="$HOST_IP"
-EMBY_CONTAINER="$EMBY_CONTAINER"
-CMS_CONTAINER="$CMS_CONTAINER"
-EOF
-  [[ $? -eq 0 ]] && info "配置已保存到 $CONFIG_FILE" || error "配置保存失败"
+  # 保存所有配置到[service]部分
+  set_ini_value "$CONFIG_FILE" "cms" "DOCKER_ROOT" "$DOCKER_ROOT"
+  set_ini_value "$CONFIG_FILE" "cms" "VIDEO_ROOT" "$VIDEO_ROOT"
+  set_ini_value "$CONFIG_FILE" "cms" "HOST_IP" "$HOST_IP"
+  set_ini_value "$CONFIG_FILE" "cms" "EMBY_CONTAINER" "$EMBY_CONTAINER"
+  set_ini_value "$CONFIG_FILE" "cms" "CMS_CONTAINER" "$CMS_CONTAINER"
+  
+  [[ $? -eq 0 ]] && info "配置已保存" || error "配置保存失败"
 }
 
 check_dependencies() {
