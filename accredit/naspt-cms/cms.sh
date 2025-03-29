@@ -1,6 +1,5 @@
 #!/bin/bash
 
-
 # 颜色配置
 COLOR_RESET="\033[0m"
 COLOR_GREEN="\033[32m"
@@ -16,6 +15,8 @@ success() { echo -e "${COLOR_GREEN}[成功] $*${COLOR_RESET}"; }
 warning() { echo -e "${COLOR_YELLOW}[警告] $*${COLOR_RESET}"; }
 error() { echo -e "${COLOR_RED}[错误] $*${COLOR_RESET}" >&2; }
 
+
+
 # 加载配置文件
 CONFIG_FILE="/root/.naspt/naspt.conf"
 
@@ -23,13 +24,36 @@ CONFIG_FILE="/root/.naspt/naspt.conf"
 DOCKER_ROOT=""
 VIDEO_ROOT=""
 HOST_IP=""
-PROXY_HOST="http://188.68.50.187:7890"
-USE_PROXY=false
-EMBY_CONTAINER="naspt-115-emby"
-CMS_CONTAINER="naspt-115-cms"
-EMBY_IMAGE="ccr.ccs.tencentyun.com/naspt/emby_unlockd:latest"
-CMS_IMAGE="ccr.ccs.tencentyun.com/naspt/cloud-media-sync:latest"
-EMBY_CONFIG_URL="https://naspt.oss-cn-shanghai.aliyuncs.com/cms/115-emby.tgz"
+EMBY_CONFIG_URL="https://pan.naspt.vip/d/123pan/shell/tgz/naspt-115-emby.tgz"
+IMAGE_SOURCE="official"  # 新增：镜像源选择
+
+# 定义私有镜像
+declare -A DOCKER_IMAGES=(
+    ["emby"]="ccr.ccs.tencentyun.com/naspt/emby:latest"
+    ["cms"]="ccr.ccs.tencentyun.com/naspt/cloud-media-sync:latest"
+)
+
+# 定义官方镜像
+declare -A OFFICIAL_DOCKER_IMAGES=(
+    ["emby"]="linuxserver/emby:latest"
+    ["cms"]="imaliang/cloud-media-sync:latest"
+)
+
+# 获取当前使用的镜像
+get_current_image() {
+    local image_type="$1"
+    local image=""
+    
+    if [[ "$IMAGE_SOURCE" == "official" ]]; then
+        image="${OFFICIAL_DOCKER_IMAGES[$image_type]}"
+    else
+        image="${DOCKER_IMAGES[$image_type]}"
+    fi
+    
+    # 使用stderr输出日志信息，这样不会影响函数返回值
+    echo -e "${COLOR_CYAN}[信息] 使用${IMAGE_SOURCE}镜像源: ${image}${COLOR_RESET}" >&2
+    printf "%s" "$image"
+}
 
 # 配置文件操作函数
 get_ini_value() {
@@ -59,8 +83,8 @@ set_ini_value() {
     echo -e "\n[$section]" >> "$file"
   fi
   
-  # 在section中查找并替换key的值，如果不存在则添加
-  if grep -q "^$key=" "$file"; then
+  # 在指定section中查找并替换key的值，如果不存在则添加
+  if grep -q "^$key=" <(sed -n "/^\[$section\]/,/^\[/p" "$file"); then
     sed -i "/^\[$section\]/,/^\[/s|^$key=.*|$key=$value|" "$file"
   else
     sed -i "/^\[$section\]/a $key=$value" "$file"
@@ -69,12 +93,13 @@ set_ini_value() {
 
 load_config() {
   if [[ -f "$CONFIG_FILE" ]]; then
-    # 从[service]部分读取所有配置
-    DOCKER_ROOT=$(get_ini_value "$CONFIG_FILE" "service" "DOCKER_ROOT")
-    VIDEO_ROOT=$(get_ini_value "$CONFIG_FILE" "service" "VIDEO_ROOT")
-    HOST_IP=$(get_ini_value "$CONFIG_FILE" "service" "HOST_IP")
-    EMBY_CONTAINER=$(get_ini_value "$CONFIG_FILE" "service" "EMBY_CONTAINER")
-    CMS_CONTAINER=$(get_ini_value "$CONFIG_FILE" "service" "CMS_CONTAINER")
+    # 从[cms]部分读取所有配置
+    DOCKER_ROOT=$(get_ini_value "$CONFIG_FILE" "cms" "DOCKER_ROOT")
+    VIDEO_ROOT=$(get_ini_value "$CONFIG_FILE" "cms" "VIDEO_ROOT")
+    HOST_IP=$(get_ini_value "$CONFIG_FILE" "cms" "HOST_IP")
+    IMAGE_SOURCE=$(get_ini_value "$CONFIG_FILE" "cms" "IMAGE_SOURCE")
+    # 如果IMAGE_SOURCE为空，设置默认值
+    [[ -z "$IMAGE_SOURCE" ]] && IMAGE_SOURCE="official"
   else
     warning "使用默认配置"
   fi
@@ -91,9 +116,7 @@ save_config() {
   set_ini_value "$CONFIG_FILE" "cms" "DOCKER_ROOT" "$DOCKER_ROOT"
   set_ini_value "$CONFIG_FILE" "cms" "VIDEO_ROOT" "$VIDEO_ROOT"
   set_ini_value "$CONFIG_FILE" "cms" "HOST_IP" "$HOST_IP"
-  set_ini_value "$CONFIG_FILE" "cms" "EMBY_CONTAINER" "$EMBY_CONTAINER"
-  set_ini_value "$CONFIG_FILE" "cms" "CMS_CONTAINER" "$CMS_CONTAINER"
-  
+
   [[ $? -eq 0 ]] && info "配置已保存" || error "配置保存失败"
 }
 
@@ -185,7 +208,7 @@ check_deploy_params() {
 }
 
 download_emby_config() {
-  local dest="${DOCKER_ROOT}/115-emby.tgz"
+  local dest="${DOCKER_ROOT}/naspt-115-emby.tgz"
   [[ -f "$dest" ]] && return
 
   info "下载Emby配置文件..."
@@ -206,7 +229,7 @@ download_emby_config() {
 init_emby() {
   check_deploy_params || exit 1
 
-  local config_dir="${DOCKER_ROOT}/${EMBY_CONTAINER}"
+  local config_dir="${DOCKER_ROOT}/naspt-115-emby"
   mkdir -p "${config_dir}/config"
 
   if netstat -tuln | grep -Eq ':38096|:38920'; then
@@ -214,31 +237,27 @@ init_emby() {
       exit 1
   fi
 
-#  clean_container "$EMBY_CONTAINER"
+  clean_container naspt-115-emby
 
   info "解压配置文件..."
-  tar -zxf "${DOCKER_ROOT}/115-emby.tgz" -C "${config_dir}" --strip-components=1 || {
+  tar -zxf "${DOCKER_ROOT}/naspt-115-emby.tgz" -C "${config_dir}" --strip-components=1 || {
     error "文件解压失败，可能下载损坏"
     rm -rf "$config_dir"
     exit 1
   }
 
-  local proxy_vars=""
-  [[ $USE_PROXY == true ]] && proxy_vars="-e HTTP_PROXY=$PROXY_HOST -e HTTPS_PROXY=$PROXY_HOST"
-
   info "启动Emby容器..."
   docker run -d --restart always \
     -e PUID=0 -e PGID=0 -e UMASK=022 \
-    $proxy_vars \
     --network bridge \
     -v "$VIDEO_ROOT:/media" \
     -v "${config_dir}/config:/config" \
     -v /etc/hosts:/etc/hosts \
     -p 38096:8096 \
     -p 38920:8920 \
-    --name "$EMBY_CONTAINER" \
-    "$EMBY_IMAGE" || {
-    error "Emby启动失败，查看日志：docker logs $EMBY_CONTAINER"
+    --name naspt-115-emby \
+    "$(get_current_image emby)" || {
+    error "Emby启动失败，查看日志：docker logs naspt-115-emby"
     exit 1
   }
 
@@ -249,14 +268,14 @@ init_emby() {
 init_cms() {
   check_deploy_params || exit 1
 
-  local config_dir="${DOCKER_ROOT}/${CMS_CONTAINER}"
+  local config_dir="${DOCKER_ROOT}/naspt-115-cms"
   mkdir -p "${config_dir}"/{config,nginx/logs,nginx/cache}
 
   if netstat -tuln | grep -Eq ':9527'; then
       error "端口 9527 已被占用，请修改配置"
       exit 1
   fi
-#  clean_container "$CMS_CONTAINER"
+  clean_container naspt-115-cms
 
   info "生成分类配置..."
   cat <<EOF > "${config_dir}/config/category.yaml"
@@ -301,10 +320,9 @@ tv:
     cid: 3108164000934470447
 EOF
 
-  warning "当前管理员密码为 a123456!@，建议部署后立即修改！"
   info "启动CMS容器..."
   docker run -d --privileged \
-    --name "$CMS_CONTAINER" \
+    --name naspt-115-cms \
     --restart always \
     --network bridge \
     -p 9527:9527 \
@@ -319,10 +337,10 @@ EOF
     -e ADMIN_USERNAME=admin \
     -e ADMIN_PASSWORD='a123456!@' \
     -e EMBY_HOST_PORT="http://$HOST_IP:38096" \
-    -e EMBY_API_KEY=f4da19345a534cedb9a5dc5e51268ab9 \
+    -e EMBY_API_KEY=d5d013c65e86428ea537006b3926737a \
     -e DONATE_CODE=CMS_HQFO2BSD_EE104D0293B84F668F7CC0B518F3AAD2 \
-    "$CMS_IMAGE" || {
-    error "CMS启动失败，查看日志：docker logs $CMS_CONTAINER"
+    "$(get_current_image cms)" || {
+    error "CMS启动失败，查看日志：docker logs naspt-115-cms"
     exit 1
   }
 
@@ -337,8 +355,8 @@ uninstall_services() {
   read -rp "$(echo -e "${COLOR_RED}确认要卸载服务吗？(输入YES确认): ${COLOR_RESET}")" confirm
   [[ "$confirm" != "YES" ]] && { info "已取消卸载"; return; }
 
-  clean_container "$EMBY_CONTAINER"
-  clean_container "$CMS_CONTAINER"
+  clean_container naspt-115-emby
+  clean_container naspt-115-cms
   rm -rf "${DOCKER_ROOT}"/naspt-115-{emby,cms}
   success "所有服务及数据已移除"
 }
@@ -351,12 +369,14 @@ configure_essential() {
     safe_input "DOCKER_ROOT" "Docker数据存储路径" "${DOCKER_ROOT:-}" "path"
     safe_input "VIDEO_ROOT" "媒体库根路径" "${VIDEO_ROOT:-}" "path"
     safe_input "HOST_IP" "服务器IP地址" "${HOST_IP:-$(ip route get 1 | awk '{print $7}' | head -1)}" "ip"
+    safe_input "IMAGE_SOURCE" "镜像源选择(private/official)" "${IMAGE_SOURCE:-official}" "image_source"
 
     header
     echo -e "${COLOR_BLUE}当前配置预览："
     echo -e "▷ Docker根目录: ${COLOR_CYAN}${DOCKER_ROOT}${COLOR_BLUE}"
     echo -e "▷ 媒体库路径: ${COLOR_CYAN}${VIDEO_ROOT}${COLOR_BLUE}"
     echo -e "▷ 服务器IP: ${COLOR_CYAN}${HOST_IP}${COLOR_BLUE}"
+    echo -e "▷ 镜像源: ${COLOR_CYAN}${IMAGE_SOURCE}${COLOR_BLUE}"
     header
 
     read -rp "$(echo -e "${COLOR_YELLOW}是否确认保存以上配置？(Y/n) ${COLOR_RESET}")" confirm
@@ -387,7 +407,7 @@ show_menu() {
 }
 
 main() {
-  check_dependencies
+#  check_dependencies
   load_config
 
   if [[ -z "$DOCKER_ROOT" || -z "$VIDEO_ROOT" || -z "$HOST_IP" ]]; then

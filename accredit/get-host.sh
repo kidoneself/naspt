@@ -3,7 +3,7 @@
 # 上传功能函数
 upload_file() {
     local file_path="$1"
-    local target_path="/123pan/shell/naspt-mp/$(basename "$file_path")"
+    local target_path="/123pan/shell/tgz/$(basename "$file_path")"
     local authorization="alist-24b56f2d-c57e-4a3a-ae55-29ef0d460f56AfVH68IQaNGk6UcwQV5iThwovcDlxD36BrDB0hieeR5qJcz4ewqGdpR8LxKmtdLt"
     local api_url="https://alist.naspt.vip/api/fs/put"
 

@@ -7,6 +7,8 @@ declare -A FOLDER_MAP=(
     ["mpv2"]="naspt-mpv2"
     ["qb"]="naspt-qb"
     ["tr"]="naspt-tr"
+    ["tr"]="naspt-tr"
+    ["115-eb"]="naspt-115-emby"
 )
 
 # 显示帮助信息
@@ -19,6 +21,7 @@ show_help() {
     echo "  mpv2        仅处理 naspt-mpv2"
     echo "  qb          仅处理 naspt-qb"
     echo "  tr          仅处理 naspt-tr"
+    echo "  115-eb      仅处理 naspt-115-emby"
     echo "  help        显示帮助信息"
     exit 1
 }
@@ -36,7 +39,7 @@ process_upload() {
     echo "打包 $folder 完成"
 
     local api_url="https://alist.naspt.vip/api/fs/put"
-    local file_path="/123pan/shell/naspt-mp/$tgz_file"
+    local file_path="/123pan/shell/tgz/$tgz_file"
 
     echo "开始上传文件: $tgz_file"
     response=$(curl --location --request PUT "$api_url" \

@@ -36,23 +36,23 @@ services:
     networks:
       eth1:
         ipv4_address: 10.10.10.22  # 替换为指定的 IP 地址
-#  emby:
-#    image: emby/embyserver:latest
-#    container_name: emby
-#    restart: always
-#    volumes:
-#      - ${DOCKER_ROOT_PATH}/emby:/config
-#      - ${VIDEO_ROOT_PATH}:/media
-#    environment:
-#      PUID: ${PUID}
-#      PGID: ${PGID}
-#      UMASK: ${UMASK}
-#      TZ: Asia/Shanghai
-#    devices:
-#      - /dev/dri:/dev/dri
-#    networks:
-#      eth1:
-#        ipv4_address: 10.10.10.6  # 替换为指定的 IP 地址
+  emby:
+    image: linuxserver/emby:latest
+    container_name: emby-offical
+    restart: always
+    volumes:
+      - ${DOCKER_ROOT_PATH}/emby:/config
+      - ${VIDEO_ROOT_PATH}:/media
+    environment:
+      PUID: ${PUID}
+      PGID: ${PGID}
+      UMASK: ${UMASK}
+      TZ: Asia/Shanghai
+    devices:
+      - /dev/dri:/dev/dri
+    networks:
+      eth1:
+        ipv4_address: 10.10.10.6  # 替换为指定的 IP 地址
 
   chinese-sub-finder:
     image: allanpk716/chinesesubfinder:latest
@@ -106,6 +106,25 @@ services:
     networks:
       eth1:
         ipv4_address: 10.10.10.10  # 替换为指定的 IP 地址
+  transmission:
+    container_name: transmission
+    image: linuxserver/transmission:4.0.5
+    restart: always
+    privileged: true
+    environment:
+      PUID: ${PUID}
+      PGID: ${PGID}
+      UMASK: ${UMASK}
+      TZ: Asia/Shanghai
+      USER: admin
+      PASS: a123456!@
+      TRANSMISSION_WEB_HOME: '/config/2/src'
+    volumes:
+      - ${DOCKER_ROOT_PATH}/transmission/config:/config
+      - ${VIDEO_ROOT_PATH}:/media
+    networks:
+      eth1:
+        ipv4_address: 10.10.10.21
 
 networks:
   eth1:

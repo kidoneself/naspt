@@ -24,8 +24,8 @@ handle_error() {
 
 # 服务配置
 declare -A CONFIG_URLS=(
-    ["navidrome"]="https://pan.naspt.vip/d/123pan/shell/naspt-music/naspt-navidrome.tgz"
-    ["musictag"]="https://pan.naspt.vip/d/123pan/shell/naspt-music/naspt-musictag.tgz"
+    ["navidrome"]="https://pan.naspt.vip/d/123pan/shell/tgz/naspt-navidrome.tgz"
+    ["musictag"]="https://pan.naspt.vip/d/123pan/shell/tgz/naspt-musictag.tgz"
 )
 
 declare -A SERVICES=(
@@ -34,11 +34,42 @@ declare -A SERVICES=(
     ["lyricapi"]="28883"
 )
 
+# 定义私有镜像
+declare -A DOCKER_IMAGES=(
+    ["navidrome"]="ccr.ccs.tencentyun.com/naspt/navidrome:latest"
+    ["musictag"]="ccr.ccs.tencentyun.com/naspt/music_tag_web:latest"
+    ["lyricapi"]="ccr.ccs.tencentyun.com/naspt/lyricapi:latest"
+)
+
+# 定义官方镜像
+declare -A OFFICIAL_DOCKER_IMAGES=(
+    ["navidrome"]="deluan/navidrome:latest"
+    ["musictag"]="xhongc/music_tag_web:latest"
+    ["lyricapi"]="hisatri/lyricapi:latest"
+)
+
 # 初始化默认配置
 DOCKER_ROOT=""
 MUSIC_ROOT=""
-HOST_IP=$(ip route get 1 | awk '{print $7}' | head -1)
+HOST_IP=""
 CONFIG_FILE="/root/.naspt/naspt.conf"
+IMAGE_SOURCE="official"  # 新增：镜像源选择
+
+# 获取当前使用的镜像
+get_current_image() {
+    local image_type="$1"
+    local image=""
+    
+    if [[ "$IMAGE_SOURCE" == "official" ]]; then
+        image="${OFFICIAL_DOCKER_IMAGES[$image_type]}"
+    else
+        image="${DOCKER_IMAGES[$image_type]}"
+    fi
+    
+    # 使用stderr输出日志信息，这样不会影响函数返回值
+    echo -e "${COLOR_CYAN}[信息] 使用${IMAGE_SOURCE}镜像源: ${image}${COLOR_RESET}" >&2
+    printf "%s" "$image"
+}
 
 # 配置文件操作函数
 get_ini_value() {
@@ -68,11 +99,21 @@ set_ini_value() {
     echo -e "\n[$section]" >> "$file"
   fi
   
-  # 在section中查找并替换key的值，如果不存在则添加
-  if grep -q "^$key=" "$file"; then
+  # 在指定section中查找并替换key的值，如果不存在则添加
+  if grep -q "^$key=" <(sed -n "/^\[$section\]/,/^\[/p" "$file"); then
     sed -i "/^\[$section\]/,/^\[/s|^$key=.*|$key=$value|" "$file"
   else
     sed -i "/^\[$section\]/a $key=$value" "$file"
+  fi
+}
+
+# 网络检查函数
+check_network() {
+  info "检查网络连接..."
+  if ! curl -Is https://pan.naspt.vip --connect-timeout 3 &>/dev/null; then
+    warning "外网连接异常，可能影响配置文件下载"
+  else
+    success "网络连接正常"
   fi
 }
 
@@ -83,6 +124,9 @@ load_config() {
         DOCKER_ROOT=$(get_ini_value "$CONFIG_FILE" "music" "DOCKER_ROOT")
         MUSIC_ROOT=$(get_ini_value "$CONFIG_FILE" "music" "MUSIC_ROOT")
         HOST_IP=$(get_ini_value "$CONFIG_FILE" "music" "HOST_IP")
+        IMAGE_SOURCE=$(get_ini_value "$CONFIG_FILE" "music" "IMAGE_SOURCE")
+        # 如果IMAGE_SOURCE为空，设置默认值
+        [[ -z "$IMAGE_SOURCE" ]] && IMAGE_SOURCE="official"
         success "已加载配置文件"
     else
         warning "使用默认配置"
@@ -97,6 +141,7 @@ save_config() {
     set_ini_value "$CONFIG_FILE" "music" "DOCKER_ROOT" "$DOCKER_ROOT"
     set_ini_value "$CONFIG_FILE" "music" "MUSIC_ROOT" "$MUSIC_ROOT"
     set_ini_value "$CONFIG_FILE" "music" "HOST_IP" "$HOST_IP"
+    set_ini_value "$CONFIG_FILE" "music" "IMAGE_SOURCE" "$IMAGE_SOURCE"
 
     success "配置已保存"
     backup_config
@@ -111,6 +156,50 @@ backup_config() {
     mkdir -p "$backup_dir"
     cp "$CONFIG_FILE" "$backup_file"
     success "配置已备份到 $backup_file"
+}
+
+# 安全输入函数
+safe_input() {
+  local var_name="$1" prompt="$2" default="$3" validator="$4"
+
+  while :; do
+    read -rp "$(echo -e "${COLOR_CYAN}${prompt} (默认: ${default}): ${COLOR_RESET}")" input
+    input=${input:-$default}
+
+    case "$validator" in
+      "path")
+        if [[ ! "$input" =~ ^/ ]]; then
+          error "必须使用绝对路径"
+          continue
+        fi
+        if [[ ! -d "$input" ]]; then
+          warning "路径不存在，尝试创建: $input"
+          mkdir -p "$input" || {
+            error "目录创建失败"
+            continue
+          }
+        fi
+        ;;
+      "ip")
+        if ! [[ "$input" =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}$ ]]; then
+          error "无效IP格式"
+          continue
+        fi
+        if ! ping -c1 -W2 "$input" &>/dev/null; then
+          warning "IP地址 $input 无法ping通，请确认网络配置"
+        fi
+        ;;
+      "image_source")
+        if [[ ! "$input" =~ ^(private|official)$ ]]; then
+          error "镜像源只能是 private 或 official"
+          continue
+        fi
+        ;;
+    esac
+
+    eval "$var_name='$input'"
+    break
+  done
 }
 
 # 进度显示
@@ -269,7 +358,7 @@ init_navidrome() {
         -e ND_LOGLEVEL=info \
         -v "${data_dir}/data:/data" \
         -v "${MUSIC_ROOT}/links:/music" \
-        ccr.ccs.tencentyun.com/naspt/navidrome:latest
+        "$(get_current_image navidrome)"
 
     check_service_health naspt-navidrome
 }
@@ -287,7 +376,7 @@ init_musictag() {
         -p "${SERVICES[musictag]}":8002 \
         -v "${MUSIC_ROOT}:/app/media" \
         -v "${data_dir}:/app/data" \
-        ccr.ccs.tencentyun.com/naspt/music_tag_web:latest
+        "$(get_current_image musictag)"
 
     check_service_health naspt-musictag
 }
@@ -303,7 +392,7 @@ init_lyricapi() {
         --restart always \
         -p "${SERVICES[lyricapi]}":28883 \
         -v "${MUSIC_ROOT}/links:/music" \
-        ccr.ccs.tencentyun.com/naspt/lyricapi:latest
+        "$(get_current_image lyricapi)"
 
     check_service_health naspt-lyricapi
 }
@@ -342,16 +431,50 @@ configure_essential() {
     header
     info "开始初始配置"
 
-    read -rp "$(echo -e "${COLOR_CYAN}Docker数据路径 (默认: $DOCKER_ROOT): ${COLOR_RESET}")" input
-    DOCKER_ROOT=${input:-$DOCKER_ROOT}
+    safe_input "DOCKER_ROOT" "Docker数据存储路径" "${DOCKER_ROOT:-}" "path"
+    safe_input "MUSIC_ROOT" "音乐库根路径" "${MUSIC_ROOT:-}" "path"
+    safe_input "HOST_IP" "服务器IP地址" "${HOST_IP:-$(ip route get 1 | awk '{print $7}' | head -1)}" "ip"
+    safe_input "IMAGE_SOURCE" "镜像源选择(private/official)" "${IMAGE_SOURCE:-official}" "image_source"
 
-    read -rp "$(echo -e "${COLOR_CYAN}音乐库路径 (默认: $MUSIC_ROOT): ${COLOR_RESET}")" input
-    MUSIC_ROOT=${input:-$MUSIC_ROOT}
+    header
+    echo -e "${COLOR_BLUE}当前配置预览："
+    echo -e "▷ Docker根目录: ${COLOR_CYAN}${DOCKER_ROOT}${COLOR_BLUE}"
+    echo -e "▷ 音乐库路径: ${COLOR_CYAN}${MUSIC_ROOT}${COLOR_BLUE}"
+    echo -e "▷ 服务器IP: ${COLOR_CYAN}${HOST_IP}${COLOR_BLUE}"
+    echo -e "▷ 镜像源: ${COLOR_CYAN}${IMAGE_SOURCE}${COLOR_BLUE}"
+    header
 
-    read -rp "$(echo -e "${COLOR_CYAN}服务器IP (默认: $HOST_IP): ${COLOR_RESET}")" input
-    HOST_IP=${input:-$HOST_IP}
+    read -rp "$(echo -e "${COLOR_YELLOW}是否确认保存以上配置？(Y/n) ${COLOR_RESET}")" confirm
+    if [[ "${confirm:-Y}" =~ ^[Yy]$ ]]; then
+      save_config
+      success "配置已保存！"
+      return 0
+    else
+      info "重新输入配置..."
+    fi
+}
 
-    save_config
+# 检查部署参数
+check_deploy_params() {
+  [[ -z "$DOCKER_ROOT" || -z "$MUSIC_ROOT" || -z "$HOST_IP" ]] && {
+    error "关键参数未配置！请先运行配置向导"
+    return 1
+  }
+  return 0
+}
+
+# 卸载服务
+uninstall_services() {
+  header
+  warning "此操作将永久删除所有容器及数据！"
+  read -rp "$(echo -e "${COLOR_RED}确认要卸载服务吗？(输入YES确认): ${COLOR_RESET}")" confirm
+  [[ "$confirm" != "YES" ]] && { info "已取消卸载"; return; }
+
+  clean_container naspt-navidrome
+  clean_container naspt-musictag
+  clean_container naspt-lyricapi
+  rm -rf "${DOCKER_ROOT}"/naspt-{navidrome,musictag,lyricapi}
+  success "所有服务及数据已移除"
 }
 
 # 主菜单
@@ -360,20 +483,25 @@ show_menu() {
     header
     echo -e "${COLOR_GREEN} NASPT 音乐服务管理脚本 v2.0"
     header
-    echo -e " 1. 自定义配置部署"
-    echo -e " 2. 单独部署服务"
-    echo -e " 3. 查看服务状态"
-    echo -e " 4. 完全卸载"
+    echo -e " 1. 完整部署"
+    echo -e " 2. 修改配置"
+    echo -e " 3. 单独部署服务"
+    echo -e " 4. 查看服务状态"
+    echo -e " 5. 完全卸载"
     echo -e " 0. 退出脚本"
     header
 }
 
 # 主函数
 main() {
-#    setup_logging
     check_dependencies
     check_network
     load_config
+
+    if [[ -z "$DOCKER_ROOT" || -z "$MUSIC_ROOT" || -z "$HOST_IP" ]]; then
+        warning "检测到未完成初始配置！"
+        configure_essential
+    fi
 
     while :; do
         show_menu
@@ -381,34 +509,60 @@ main() {
 
         case $choice in
             1)
-                configure_essential
+                header
+                if [[ -n "$DOCKER_ROOT" && -n "$MUSIC_ROOT" && -n "$HOST_IP" ]]; then
+                    info "检测到当前配置："
+                    echo -e "▷ Docker存储: ${COLOR_CYAN}${DOCKER_ROOT}${COLOR_RESET}"
+                    echo -e "▷ 音乐库路径: ${COLOR_CYAN}${MUSIC_ROOT}${COLOR_RESET}"
+                    echo -e "▷ 服务器地址: ${COLOR_CYAN}${HOST_IP}${COLOR_RESET}"
+                    echo -e "▷ 镜像源: ${COLOR_CYAN}${IMAGE_SOURCE}${COLOR_RESET}"
+                    header
+                    read -rp "$(echo -e "${COLOR_YELLOW}确认使用以上配置进行部署？(Y/n) ${COLOR_RESET}")" confirm
+
+                    if [[ ! "${confirm:-Y}" =~ ^[Yy]$ ]]; then
+                        warning "已取消部署，请先修改配置"
+                        continue
+                    fi
+                else
+                    error "缺少必要配置，请先完成初始配置！"
+                    continue
+                fi
+
                 quick_install
                 ;;
-            2)
+            2) 
+                configure_essential 
+                ;;
+            3)
                 header
                 echo -e "请选择要部署的服务："
                 echo -e " 1. Navidrome"
                 echo -e " 2. MusicTag"
                 echo -e " 3. LyricAPI"
-                read -rp "请输入编号: " service_choice
+                read -rp "$(echo -e "${COLOR_CYAN}请输入编号: ${COLOR_RESET}")" service_choice
                 case $service_choice in
-                    1) init_navidrome ;;
-                    2) init_musictag ;;
-                    3) init_lyricapi ;;
-                    *) error "无效选择" ;;
+                    1) 
+                        check_deploy_params && init_navidrome 
+                        ;;
+                    2) 
+                        check_deploy_params && init_musictag 
+                        ;;
+                    3) 
+                        check_deploy_params && init_lyricapi 
+                        ;;
+                    *) 
+                        error "无效选择" 
+                        ;;
                 esac
                 ;;
-            3)
+            4)
                 header
                 echo -e "${COLOR_CYAN}运行中的容器："
-                docker ps --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"
+                docker ps --filter "name=naspt-" --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"
                 header
                 ;;
-            4)
-                clean_container naspt-navidrome
-                clean_container naspt-musictag
-                clean_container naspt-lyricapi
-                success "所有服务已卸载"
+            5)
+                uninstall_services
                 ;;
             0)
                 cleanup

@@ -23,12 +23,10 @@ CONFIG_FILE="/root/.naspt/naspt.conf"
 # 初始化默认配置
 DOCKER_ROOT=""
 HOST_IP=""
-CLASH_CONTAINER="naspt-clash"
-CLASH_VOLUME="naspt-clash"
 WEB_PORT="8081"
 PROXY_PORT="7890"
-CLASH_CONFIG_URL="https://alist.naspt.vip/d/shell/naspt-cl/naspt-cl.tgz"
-IMAGE_SOURCE="private"  # 新增：镜像源选择，private 或 official
+CLASH_CONFIG_URL="https://pan.naspt.vip/d/123pan/shell/tgz/naspt-cl.tgz"
+IMAGE_SOURCE="official"  # 新增：镜像源选择，private 或 official
 
 
 declare -A DOCKER_IMAGES=(
@@ -83,8 +81,8 @@ set_ini_value() {
     echo -e "\n[$section]" >> "$file"
   fi
   
-  # 在section中查找并替换key的值，如果不存在则添加
-  if grep -q "^$key=" "$file"; then
+  # 在指定section中查找并替换key的值，如果不存在则添加
+  if grep -q "^$key=" <(sed -n "/^\[$section\]/,/^\[/p" "$file"); then
     sed -i "/^\[$section\]/,/^\[/s|^$key=.*|$key=$value|" "$file"
   else
     sed -i "/^\[$section\]/a $key=$value" "$file"
@@ -96,8 +94,6 @@ load_config() {
     # 从[clash]部分读取所有配置
     DOCKER_ROOT=$(get_ini_value "$CONFIG_FILE" "clash" "DOCKER_ROOT")
     HOST_IP=$(get_ini_value "$CONFIG_FILE" "clash" "HOST_IP")
-    CLASH_CONTAINER=$(get_ini_value "$CONFIG_FILE" "clash" "CLASH_CONTAINER")
-    CLASH_VOLUME=$(get_ini_value "$CONFIG_FILE" "clash" "CLASH_VOLUME")
     WEB_PORT=$(get_ini_value "$CONFIG_FILE" "clash" "WEB_PORT")
     PROXY_PORT=$(get_ini_value "$CONFIG_FILE" "clash" "PROXY_PORT")
     IMAGE_SOURCE=$(get_ini_value "$CONFIG_FILE" "clash" "IMAGE_SOURCE")
@@ -118,8 +114,6 @@ save_config() {
   # 保存所有配置到[clash]部分
   set_ini_value "$CONFIG_FILE" "clash" "DOCKER_ROOT" "$DOCKER_ROOT"
   set_ini_value "$CONFIG_FILE" "clash" "HOST_IP" "$HOST_IP"
-  set_ini_value "$CONFIG_FILE" "clash" "CLASH_CONTAINER" "$CLASH_CONTAINER"
-  set_ini_value "$CONFIG_FILE" "clash" "CLASH_VOLUME" "$CLASH_VOLUME"
   set_ini_value "$CONFIG_FILE" "clash" "WEB_PORT" "$WEB_PORT"
   set_ini_value "$CONFIG_FILE" "clash" "PROXY_PORT" "$PROXY_PORT"
   set_ini_value "$CONFIG_FILE" "clash" "IMAGE_SOURCE" "$IMAGE_SOURCE"
@@ -286,10 +280,10 @@ download_clash_config() {
 init_clash() {
   check_deploy_params || exit 1
 
-  local config_dir="${DOCKER_ROOT}/${CLASH_VOLUME}"
+  local config_dir="${DOCKER_ROOT}/naspt-clash"
   mkdir -p "${config_dir}"
 
-  clean_container "$CLASH_CONTAINER"
+  clean_container "naspt-clash"
 
   if netstat -tuln | grep -Eq ":${WEB_PORT}|:${PROXY_PORT}"; then
       error "端口 ${WEB_PORT} 或 ${PROXY_PORT} 已被占用"
@@ -311,9 +305,9 @@ init_clash() {
     -v "${config_dir}:/root/.config/clash" \
     -p "${WEB_PORT}:8080" \
     -p "${PROXY_PORT}:7890" \
-    --name "$CLASH_CONTAINER" \
+    --name naspt-clash \
     "$(get_current_image clash)" || {
-    error "Clash启动失败，查看日志：docker logs $CLASH_CONTAINER"
+    error "Clash启动失败，查看日志：docker logs naspt-clash"
     exit 1
   }
 
@@ -328,8 +322,8 @@ uninstall_services() {
   read -rp "$(echo -e "${COLOR_RED}确认要卸载服务吗？(输入Y确认): ${COLOR_RESET}")" confirm
   [[ "$confirm" != "Y" ]] && { info "已取消卸载"; return; }
 
-  clean_container "$CLASH_CONTAINER"
-  rm -rf "${DOCKER_ROOT}/${CLASH_VOLUME}"
+  clean_container naspt-clash
+  rm -rf "${DOCKER_ROOT}/naspt-clash"
   success "所有服务及数据已移除"
 }
 
@@ -346,19 +340,19 @@ update_clash() {
   fi
   
   # 停止并移除旧容器
-  clean_container "$CLASH_CONTAINER"
+  clean_container naspt-clash
   
   # 使用最新镜像重新启动容器
   info "使用最新镜像重启服务..."
   docker run -d --restart always \
     -e PUID=0 -e PGID=0 -e UMASK=022 \
     --network bridge \
-    -v "${DOCKER_ROOT}/${CLASH_VOLUME}:/root/.config/clash" \
+    -v "${DOCKER_ROOT}/naspt-clash:/root/.config/clash" \
     -p "${WEB_PORT}:8080" \
     -p "${PROXY_PORT}:7890" \
-    --name "$CLASH_CONTAINER" \
+    --name naspt-clash \
     "$(get_current_image clash)" || {
-    error "Clash更新失败，查看日志：docker logs $CLASH_CONTAINER"
+    error "Clash更新失败，查看日志：docker logs naspt-clash"
     return 1
   }
   
@@ -425,7 +419,7 @@ main() {
       4)
         header
         echo -e "${COLOR_CYAN}容器状态:"
-        docker ps -a --filter "name=${CLASH_CONTAINER}" \
+        docker ps -a --filter "name=naspt-clash" \
           --format "table {{.ID}}\t{{.Names}}\t{{.Status}}\t{{.Ports}}"
         header
         ;;

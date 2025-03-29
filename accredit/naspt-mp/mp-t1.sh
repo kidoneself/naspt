@@ -18,14 +18,17 @@ error() { echo -e "${COLOR_RED}[错误] $*${COLOR_RESET}" >&2; }
 
 # 服务配置
 declare -A CONFIG_URLS=(
-    ["tr"]="https://alist.naspt.vip/d/123pan/shell/naspt-mp/naspt-tr.tgz"
-    ["emby"]="https://alist.naspt.vip/d/123pan/shell/naspt-mp/naspt-emby.tgz"
-    ["qb"]="https://alist.naspt.vip/d/123pan/shell/naspt-mp/naspt-qb.tgz"
-    ["csf"]="https://alist.naspt.vip/d/123pan/shell/naspt-mp/naspt-csf.tgz"
-    ["mp"]="https://alist.naspt.vip/d/123pan/shell/naspt-mp/naspt-mpv2.tgz"
+    ["tr"]="https://alist.naspt.vip/d/123pan/shell/tgz/naspt-tr.tgz"
+    ["emby"]="https://alist.naspt.vip/d/123pan/shell/tgz/naspt-emby.tgz"
+    ["qb"]="https://alist.naspt.vip/d/123pan/shell/tgz/naspt-qb.tgz"
+    ["csf"]="https://alist.naspt.vip/d/123pan/shell/tgz/naspt-csf.tgz"
+    ["mp"]="https://alist.naspt.vip/d/123pan/shell/tgz/naspt-mpv2.tgz"
 )
 
-# Docker镜像配置
+# 镜像源配置
+IMAGE_SOURCE="official"  # 默认使用官方镜像
+
+# 私有镜像配置
 declare -A DOCKER_IMAGES=(
     ["tr"]="ccr.ccs.tencentyun.com/naspt/transmission:4.0.5"
     ["emby"]="ccr.ccs.tencentyun.com/naspt/embyserver:latest"
@@ -33,6 +36,30 @@ declare -A DOCKER_IMAGES=(
     ["csf"]="ccr.ccs.tencentyun.com/naspt/chinesesubfinder:latest"
     ["mp"]="ccr.ccs.tencentyun.com/naspt/moviepilot-v2:latest"
 )
+
+# 官方镜像配置
+declare -A OFFICIAL_DOCKER_IMAGES=(
+    ["tr"]="linuxserver/transmission:4.0.5"
+    ["emby"]="amilys/embyserver:latest"
+    ["qb"]="linuxserver/qbittorrent:4.6.4"
+    ["csf"]="allanpk716/chinesesubfinder:latest"
+    ["mp"]="jxxghp/moviepilot-v2:latest"
+)
+
+# 获取当前使用的镜像
+get_current_image() {
+    local image_type="$1"
+    local image=""
+    
+    if [[ "$IMAGE_SOURCE" == "official" ]]; then
+        image="${OFFICIAL_DOCKER_IMAGES[$image_type]}"
+    else
+        image="${DOCKER_IMAGES[$image_type]}"
+    fi
+    
+    echo -e "${COLOR_CYAN}[信息] 使用${IMAGE_SOURCE}镜像源: ${image}${COLOR_RESET}" >&2
+    printf "%s" "$image"
+}
 
 # 初始化默认配置
 DOCKER_ROOT=""
@@ -79,8 +106,8 @@ set_ini_value() {
     echo -e "\n[$section]" >> "$file"
   fi
   
-  # 在section中查找并替换key的值，如果不存在则添加
-  if grep -q "^$key=" "$file"; then
+  # 在指定section中查找并替换key的值，如果不存在则添加
+  if grep -q "^$key=" <(sed -n "/^\[$section\]/,/^\[/p" "$file"); then
     sed -i "/^\[$section\]/,/^\[/s|^$key=.*|$key=$value|" "$file"
   else
     sed -i "/^\[$section\]/a $key=$value" "$file"
@@ -89,15 +116,17 @@ set_ini_value() {
 
 load_config() {
   if [[ -f "$CONFIG_FILE" ]]; then
-    # 从[service]部分读取所有配置
-    DOCKER_ROOT=$(get_ini_value "$CONFIG_FILE" "service" "DOCKER_ROOT")
-    MEDIA_ROOT=$(get_ini_value "$CONFIG_FILE" "service" "MEDIA_ROOT")
-    HOST_IP=$(get_ini_value "$CONFIG_FILE" "service" "HOST_IP")
-    TR_PORT=$(get_ini_value "$CONFIG_FILE" "service" "TR_PORT")
-    EMBY_PORT=$(get_ini_value "$CONFIG_FILE" "service" "EMBY_PORT")
-    QB_PORT=$(get_ini_value "$CONFIG_FILE" "service" "QB_PORT")
-    CSF_PORT=$(get_ini_value "$CONFIG_FILE" "service" "CSF_PORT")
-    MP_PORT=$(get_ini_value "$CONFIG_FILE" "service" "MP_PORT")
+    # 从[mp]部分读取所有配置
+    DOCKER_ROOT=$(get_ini_value "$CONFIG_FILE" "mp" "DOCKER_ROOT")
+    MEDIA_ROOT=$(get_ini_value "$CONFIG_FILE" "mp" "MEDIA_ROOT")
+    HOST_IP=$(get_ini_value "$CONFIG_FILE" "mp" "HOST_IP")
+    TR_PORT=$(get_ini_value "$CONFIG_FILE" "mp" "TR_PORT")
+    EMBY_PORT=$(get_ini_value "$CONFIG_FILE" "mp" "EMBY_PORT")
+    QB_PORT=$(get_ini_value "$CONFIG_FILE" "mp" "QB_PORT")
+    CSF_PORT=$(get_ini_value "$CONFIG_FILE" "mp" "CSF_PORT")
+    MP_PORT=$(get_ini_value "$CONFIG_FILE" "mp" "MP_PORT")
+    IMAGE_SOURCE=$(get_ini_value "$CONFIG_FILE" "mp" "IMAGE_SOURCE")
+    IMAGE_SOURCE=${IMAGE_SOURCE:-official}
   else
     warning "使用默认配置"
   fi
@@ -110,13 +139,14 @@ save_config() {
     return 1
   }
 
-  # 保存所有配置到[service]部分
+  # 保存所有配置到[mp]部分
   set_ini_value "$CONFIG_FILE" "mp" "DOCKER_ROOT" "$DOCKER_ROOT"
   set_ini_value "$CONFIG_FILE" "mp" "MEDIA_ROOT" "$MEDIA_ROOT"
   set_ini_value "$CONFIG_FILE" "mp" "HOST_IP" "$HOST_IP"
   set_ini_value "$CONFIG_FILE" "mp" "TR_PORT" "$TR_PORT"
   set_ini_value "$CONFIG_FILE" "mp" "EMBY_PORT" "$EMBY_PORT"
   set_ini_value "$CONFIG_FILE" "mp" "QB_PORT" "$QB_PORT"
+  set_ini_value "$CONFIG_FILE" "mp" "IMAGE_SOURCE" "$IMAGE_SOURCE"
   set_ini_value "$CONFIG_FILE" "mp" "CSF_PORT" "$CSF_PORT"
   set_ini_value "$CONFIG_FILE" "mp" "MP_PORT" "$MP_PORT"
   
@@ -261,7 +291,7 @@ init_tr() {
     -e 'TRANSMISSION_WEB_HOME'='/config/2/src' \
     -v "${data_dir}/config:/config" \
     -v "${MEDIA_ROOT}:/media" \
-    ${DOCKER_IMAGES["tr"]} || {
+    $(get_current_image "tr") || {
     error "Transmission 启动失败"
     return 1
   }
@@ -287,7 +317,7 @@ init_emby() {
     -e UID=0 -e GID=0 -e UMASK=022 \
     -v "${data_dir}/config:/config" \
     -v "${MEDIA_ROOT}:/media" \
-    ${DOCKER_IMAGES["emby"]} || {
+    $(get_current_image "emby") || {
     error "Emby 启动失败"
     return 1
   }
@@ -312,7 +342,7 @@ init_qb() {
     -e TempPatch="/media/downloads" \
     -v "${data_dir}/config:/config" \
     -v "${MEDIA_ROOT}:/media" \
-    ${DOCKER_IMAGES["qb"]} || {
+    $(get_current_image "qb") || {
     error "qBittorrent 启动失败"
     return 1
   }
@@ -335,7 +365,7 @@ init_csf() {
     -v "${data_dir}/config:/config" \
      -v "${data_dir}/cache:/app/cache" \
     -v "${MEDIA_ROOT}:/media" \
-    ${DOCKER_IMAGES["csf"]} || {
+    $(get_current_image "csf") || {
     error "ChineseSubFinder 启动失败"
     return 1
   }
@@ -349,10 +379,10 @@ init_mp() {
   download_config "mp" "$data_dir" || return 1
 
   info "正在下载最新HOST"
-  curl -Ls  https://pan.naspt.vip/d/123pan/shell/naspt-mp/hosts_new.txt >> ${data_dir}/hosts_new.txt
+  curl -Ls  https://pan.naspt.vip/d/123pan/shell/tgz/hosts_new.txt >> ${data_dir}/hosts_new.txt
   info "下载成功"
   info "配置自动更新HOST"
-  CRON_COMMAND="curl -Ls https://pan.naspt.vip/d/123pan/shell/naspt-mp/hosts_new.txt >> ${data_dir}/hosts_new.txt"
+  CRON_COMMAND="curl -Ls https://pan.naspt.vip/d/123pan/shell/tgz/hosts_new.txt >> ${data_dir}/hosts_new.txt"
   CRON_JOB="${CRON_SCHEDULE} ${CRON_COMMAND}"
   # 检查 cron 任务是否存在
   if crontab -l 2>/dev/null | grep -F --quiet "$CRON_COMMAND"; then
@@ -388,8 +418,8 @@ init_mp() {
     -e TZ=Asia/Shanghai \
     -e SUPERUSER=admin \
     -e API_TOKEN=nasptnasptnasptnasptnaspt \
-    -e AUTO_UPDATE_RESOURCE=false \
-    -e MOVIEPILOT_AUTO_UPDATE=false \
+    -e AUTO_UPDATE_RESOURCE=true\
+    -e MOVIEPILOT_AUTO_UPDATE=release\
     -e AUTH_SITE=icc2022,leaves \
     -e ICC2022_UID="24730" \
     -e ICC2022_PASSKEY="49c421073514d4d981a0cbc4174f4b23" \
@@ -401,7 +431,7 @@ init_mp() {
     -v "${DOCKER_ROOT}/naspt-qb/config/qBittorrent/BT_backup:/qbtr" \
     -v "${data_dir}/core:/moviepilot/.cache/ms-playwright" \
     -v "${data_dir}/hosts_new.txt:/etc/hosts:ro" \
-    ${DOCKER_IMAGES["mp"]} || {
+    $(get_current_image "mp") || {
     error "MoviePilot 启动失败"
     return 1
   }
@@ -563,6 +593,16 @@ configure_essential() {
     safe_input "QB_PORT" "qBittorrent端口" "$QB_PORT" "port"
     safe_input "CSF_PORT" "ChineseSubFinder端口" "$CSF_PORT" "port"
     safe_input "MP_PORT" "MoviePilot端口" "$MP_PORT" "port"
+
+    header
+    echo -e "请选择镜像源:"
+    echo -e "1. 官方镜像 (默认)"
+    echo -e "2. 私有镜像"
+    read -rp "$(echo -e "${COLOR_CYAN}请选择 (1/2): ${COLOR_RESET}")" image_choice
+    case "$image_choice" in
+      2) IMAGE_SOURCE="private" ;;
+      *) IMAGE_SOURCE="official" ;;
+    esac
 
     header
     echo -e "${COLOR_BLUE}配置预览："

@@ -52,8 +52,8 @@ set_ini_value() {
     echo -e "\n[$section]" >> "$file"
   fi
   
-  # 在section中查找并替换key的值，如果不存在则添加
-  if grep -q "^$key=" "$file"; then
+  # 在指定section中查找并替换key的值，如果不存在则添加
+  if grep -q "^$key=" <(sed -n "/^\[$section\]/,/^\[/p" "$file"); then
     sed -i "/^\[$section\]/,/^\[/s|^$key=.*|$key=$value|" "$file"
   else
     sed -i "/^\[$section\]/a $key=$value" "$file"
